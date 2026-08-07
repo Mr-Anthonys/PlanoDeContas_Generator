@@ -1,0 +1,168 @@
+{
+  "_comentario": "Fonte única de verdade para valores de referência (TipoArq, InterfaceComum, InterfaceFormaPgto) e para as últimas configurações usadas pelo aplicativo. Não duplique estes valores em outro arquivo.",
+  "tipos_conta": [
+    "Recebimento"
+  ],
+  "opcoes_historico": [
+    "Qtd",
+    "Protocolo",
+    "LivroFolha"
+  ],
+  "tipos_arquivo": {
+    "Emolumentos": {
+      "interface_arq": {
+        "NomeTipo": "Emolumentos",
+        "Extensao": ".xlsx",
+        "FormaColunas": "Variável (;)",
+        "LocalArquivos": "",
+        "Linha1": 2,
+        "LinhaF": 0,
+        "LimpaCol": 0,
+        "Cab_Ult_Col": 0,
+        "Cab_Ult_Text": "",
+        "Rod_Pri_Col": 0,
+        "Rod_Pri_Text": "",
+        "InterfaceInicial": 1,
+        "Cab_Ult_Oco": 0,
+        "Rod_Pri_Oco": 0,
+        "InterfaceEntrManual": 0
+      },
+      "interface_comum": {
+        "LocalCodigo": "Codigo",
+        "LocalDataMovimento": "Data",
+        "LocalValor": "Emolumentos",
+        "LocalForma": " N/A",
+        "LocalAtos": "Qtd",
+        "LocalVlBruto": "Total",
+        "LocalEstado": "Estado",
+        "LocalIPESP": "Sefaz",
+        "LocalStaCasa": "StaCasa",
+        "LocalRegCivil": "Sinoreg",
+        "LocalTribunal": "Tribunal",
+        "LocalISS": "ISS",
+        "LocalMP": "MP",
+        "LocalEdital": "",
+        "LocalIntimacao": "",
+        "LocalTelegrama": "",
+        "LocalProtocolo": ""
+      },
+      "interface_forma_pgto": {
+        "FormaSist": "N/A",
+        "FormaSGF": "Vários",
+        "BcoSGF": "",
+        "CCNumSGF": "",
+        "ChequeSGF": "",
+        "ChequeSGFIni": 0,
+        "ChequeSGFTam": 0,
+        "ChequeSGFFim": 0
+      }
+    },
+    "Emolumentos_Protesto": {
+      "interface_arq": {
+        "NomeTipo": "Emolumentos_Protesto",
+        "Extensao": ".xlsx",
+        "FormaColunas": "Variável (;)",
+        "LocalArquivos": "",
+        "Linha1": 2,
+        "LinhaF": 0,
+        "LimpaCol": 0,
+        "Cab_Ult_Col": 0,
+        "Cab_Ult_Text": "",
+        "Rod_Pri_Col": 0,
+        "Rod_Pri_Text": "",
+        "InterfaceInicial": 1,
+        "Cab_Ult_Oco": 0,
+        "Rod_Pri_Oco": 0,
+        "InterfaceEntrManual": 0
+      },
+      "interface_comum": {
+        "LocalCodigo": "Codigo",
+        "LocalDataMovimento": "Data",
+        "LocalValor": "Emolumentos",
+        "LocalForma": " N/A",
+        "LocalAtos": "Qtd",
+        "LocalVlBruto": "Total",
+        "LocalEstado": "Estado",
+        "LocalIPESP": "Sefaz",
+        "LocalStaCasa": "StaCasa",
+        "LocalRegCivil": "Sinoreg",
+        "LocalTribunal": "Tribunal",
+        "LocalISS": "ISS",
+        "LocalMP": "MP",
+        "LocalEdital": "",
+        "LocalIntimacao": "",
+        "LocalTelegrama": "",
+        "LocalProtocolo": ""
+      },
+      "interface_forma_pgto": {
+        "FormaSist": "N/A",
+        "FormaSGF": "Vários",
+        "BcoSGF": "",
+        "CCNumSGF": "",
+        "ChequeSGF": "",
+        "ChequeSGFIni": 0,
+        "ChequeSGFTam": 0,
+        "ChequeSGFFim": 0
+      }
+    },
+    "Emolumentos_Notas": {
+      "interface_arq": {
+        "NomeTipo": "Emolumentos_Notas",
+        "Extensao": ".xlsx",
+        "FormaColunas": "Variável (;)",
+        "LocalArquivos": "",
+        "Linha1": 2,
+        "LinhaF": 0,
+        "LimpaCol": 0,
+        "Cab_Ult_Col": 0,
+        "Cab_Ult_Text": "",
+        "Rod_Pri_Col": 0,
+        "Rod_Pri_Text": "",
+        "InterfaceInicial": 1,
+        "Cab_Ult_Oco": 0,
+        "Rod_Pri_Oco": 0,
+        "InterfaceEntrManual": 0
+      },
+      "interface_comum": {
+        "LocalCodigo": "Codigo",
+        "LocalDataMovimento": "Data",
+        "LocalValor": "Emolumentos",
+        "LocalForma": " N/A",
+        "LocalAtos": "Qtd",
+        "LocalVlBruto": "Total",
+        "LocalEstado": "Estado",
+        "LocalIPESP": "Sefaz",
+        "LocalStaCasa": "StaCasa",
+        "LocalRegCivil": "Sinoreg",
+        "LocalTribunal": "Tribunal",
+        "LocalISS": "ISS",
+        "LocalMP": "MP",
+        "LocalEdital": "",
+        "LocalIntimacao": "",
+        "LocalTelegrama": "",
+        "LocalProtocolo": ""
+      },
+      "interface_forma_pgto": {
+        "FormaSist": "N/A",
+        "FormaSGF": "Vários",
+        "BcoSGF": "",
+        "CCNumSGF": "",
+        "ChequeSGF": "",
+        "ChequeSGFIni": 0,
+        "ChequeSGFTam": 0,
+        "ChequeSGFFim": 0
+      }
+    }
+  },
+  "ultimas_configuracoes": {
+    "ultimo_diretorio": "",
+    "ultimo_tipo_arq": "Emolumentos",
+    "ultimo_tipo_conta": "Recebimento",
+    "ultimo_regime": "Titular",
+    "ultima_qtd_marcadores": 1,
+    "ultimo_historico1": "Qtd",
+    "ultimo_historico2": "",
+    "ultimo_interface_comum": "Emolumentos",
+    "ultimo_interface_forma_pgto": "Emolumentos"
+  }
+}
