@@ -6,7 +6,8 @@
   "opcoes_historico": [
     "Qtd",
     "Protocolo",
-    "LivroFolha"
+    "LivroFolha",
+    "Historico"
   ],
   "tipos_arquivo": {
     "Emolumentos": {
