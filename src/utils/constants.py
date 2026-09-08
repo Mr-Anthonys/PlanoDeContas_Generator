@@ -50,6 +50,12 @@ GESTOR_PARAMETROS_LOGIN = "Gestor_Parametros_Login"
 GESTOR_PARAMETROS_SENHA = "OTqzUdjX8YNiXh71Rzv/gXx9q6o6OP3uRGsaCzJ5l2A="
 TABELA_PARAMETROS_CLIENTES = "Parametros_Clientes"
 
+# Servidor próprio da Pro-Packages ("ServidorPP") — endereço fixo oferecido
+# como opção de hospedagem na Criação de Base (etapa Parametros_Clientes) e
+# sempre um dos alvos possíveis de registro, independente de onde a base do
+# cliente física está.
+SERVIDOR_PP = "100.77.102.1,1435"
+
 REGIME_INTERINO = "Interino"
 REGIME_TITULAR = "Titular"
 REGIMES = [REGIME_INTERINO, REGIME_TITULAR]

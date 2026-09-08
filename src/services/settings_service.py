@@ -74,12 +74,12 @@ DEFAULTS_CONEXAO = {
 }
 
 DEFAULTS_CRIAR_BASE = {
-    "prod_servidor": "",
-    "prod_usuario": "",
-    "dev_servidor": "",
-    "dev_usuario": "",
-    "nome_dev": "",
-    "diretorio_dev": "",
+    "modelo_servidor": "",
+    "modelo_usuario": "",
+    "destino_servidor": "",
+    "destino_usuario": "",
+    "mesmo_servidor": True,
+    "pp_usuario": "",
 }
 
 
@@ -108,8 +108,8 @@ def save_last_connection(servidor: str, usuario: str, caminho: str = None, ultim
 
 def load_last_criar_base_settings(caminho: str = None) -> dict:
     """Campos não-sensíveis do último provisionamento de base (servidor/
-    usuário de produção e de dev, nome de exibição e diretório de dev).
-    Nenhuma senha é persistida em disco."""
+    usuário da base modelo e de destino, se eram o mesmo servidor, e o
+    usuário do ServidorPP). Nenhuma senha é persistida em disco."""
     try:
         config = _read_config(caminho)
     except (FileNotFoundError, json.JSONDecodeError):
@@ -123,12 +123,12 @@ def load_last_criar_base_settings(caminho: str = None) -> dict:
 def save_last_criar_base_settings(dados: dict, caminho: str = None) -> None:
     config = _read_config(caminho)
     config["ultima_criacao_base"] = {
-        "prod_servidor": dados.get("prod_servidor", ""),
-        "prod_usuario": dados.get("prod_usuario", ""),
-        "dev_servidor": dados.get("dev_servidor", ""),
-        "dev_usuario": dados.get("dev_usuario", ""),
-        "nome_dev": dados.get("nome_dev", ""),
-        "diretorio_dev": dados.get("diretorio_dev", ""),
+        "modelo_servidor": dados.get("modelo_servidor", ""),
+        "modelo_usuario": dados.get("modelo_usuario", ""),
+        "destino_servidor": dados.get("destino_servidor", ""),
+        "destino_usuario": dados.get("destino_usuario", ""),
+        "mesmo_servidor": dados.get("mesmo_servidor", True),
+        "pp_usuario": dados.get("pp_usuario", ""),
     }
     _write_config(config, caminho)
 

@@ -1,10 +1,14 @@
 from src.services import criar_base_service
-from src.services.criar_base_service import NovaBaseConfig, ProgressEvent
+from src.services.criar_base_service import (
+    AlvoParametros, NovaBaseConfig, ParametrosClienteConfig, PlanoProvisionamento, ProgressEvent, TabelaExtra,
+)
 from src.services.db_connection_service import ConnectionSettings
 from tests.conftest import FakeConnection, FakeCursor
 
-PROD_CS = ConnectionSettings(servidor="prod-host", usuario="user_prod", senha="x")
-DEV_CS = ConnectionSettings(servidor="dev-host", usuario="user_dev", senha="y")
+MODELO_CS = ConnectionSettings(servidor="prod-host", usuario="user_modelo", senha="x")
+DESTINO_CS = ConnectionSettings(servidor="prod-host", usuario="user_destino", senha="y")  # mesmo servidor do modelo
+DESTINO_OUTRO_SERVIDOR_CS = ConnectionSettings(servidor="outro-host", usuario="user_destino", senha="y")
+PP_CS = ConnectionSettings(servidor="100.77.102.1,1435", usuario="user_pp", senha="z")
 
 
 def _config(cart_interino=False) -> NovaBaseConfig:
@@ -28,88 +32,182 @@ def _config(cart_interino=False) -> NovaBaseConfig:
         cart_cnpj="00.000.000/0000-00",
         diretorio="C:\\ProPackages\\Arquivos\\Gestor_SP_Teste\\",
         odbc_dsn="ODBC_GF_SP_Teste",
-        nome_dev="INR - Gestor_SP_Teste",
-        diretorio_dev="C:\\ProPackages\\Clientes\\INR\\Arquivos\\Gestor_SP_Teste\\",
     )
 
 
-def _patch_connect(monkeypatch, cursor_prod=None, cursor_dev=None):
+def _parametros_cfg() -> ParametrosClienteConfig:
+    return ParametrosClienteConfig(
+        nome="INR - Gestor_SP_Teste",
+        servidor="100.77.102.1,1435",
+        banco="Gestor_SP_Teste",
+        usuario="user_teste",
+        senha="senha123",
+        diretorio_arquivo="C:\\ProPackages\\Arquivos\\Gestor_SP_Teste\\",
+        odbc="DSN=ODBC_GF_INR;UID=user_teste;PWD=senha123;",
+        browser_dashboard="CHROME",
+        url_dashboard="https://dashboard-frontend-masterr.herokuapp.com/",
+        url_dashboard_token="https://dashboard-frontend-masterr.herokuapp.com/",
+        diretorio_mensalistas="C:\\ProPackages\\Mensalistas\\Propackage.Gestor.UI.exe",
+        url_validacao="",
+        url_gestor_clientes="https://gestor-clientes-git-main-propackages-projects.vercel.app/api/notaries/",
+    )
+
+
+def _plano(modelo_cs=MODELO_CS, destino_cs=DESTINO_CS, tabelas_extras=None, parametros_alvos=None, cart_interino=False):
+    if parametros_alvos is None:
+        parametros_alvos = [AlvoParametros("destino", "servidor de destino", destino_cs)]
+    return PlanoProvisionamento(
+        modelo_cs=modelo_cs,
+        destino_cs=destino_cs,
+        cfg=_config(cart_interino=cart_interino),
+        tabelas_extras=tabelas_extras or [],
+        parametros_cfg=_parametros_cfg(),
+        parametros_alvos=parametros_alvos,
+    )
+
+
+def _patch_connect(monkeypatch, cursores_por_servidor=None):
     """Substitui db_connection_service.connect (visto de dentro de
-    criar_base_service) por uma versão que devolve conexões falsas,
-    registrando qual ConnectionSettings foi usada em cada chamada."""
+    criar_base_service) por uma versão que devolve conexões falsas por
+    servidor, registrando qual ConnectionSettings foi usada em cada chamada."""
+    cursores_por_servidor = cursores_por_servidor or {}
     chamadas = []
-    conn_prod = FakeConnection(cursor_prod or FakeCursor())
-    conn_dev = FakeConnection(cursor_dev or FakeCursor())
+    conexoes = {}
 
     def _fake_connect(cs, autocommit=False):
         chamadas.append(cs)
-        return conn_dev if cs is DEV_CS else conn_prod
+        chave = cs.servidor.strip().lower()
+        if chave not in conexoes:
+            cursor = cursores_por_servidor.get(chave, FakeCursor())
+            conexoes[chave] = FakeConnection(cursor)
+        return conexoes[chave]
 
     monkeypatch.setattr(criar_base_service.dbc, "connect", _fake_connect)
-    return chamadas, conn_prod, conn_dev
+    return chamadas, conexoes
 
 
-def test_executar_criacao_base_happy_path_sem_interino(monkeypatch):
-    chamadas, conn_prod, conn_dev = _patch_connect(monkeypatch)
+def test_happy_path_sem_interino_sem_tabelas_extras(monkeypatch):
+    chamadas, conexoes = _patch_connect(monkeypatch)
     eventos = []
 
-    resultado = criar_base_service.executar_criacao_base(PROD_CS, DEV_CS, _config(), eventos.append)
+    resultado = criar_base_service.executar_criacao_base(_plano(), eventos.append)
 
     assert resultado.sucesso is True
-    assert resultado.passos_concluidos == [
-        "schema", "usuario", "dados", "cartorio", "cartorio_id", "parametros_prod", "parametros_dev",
-    ]
-    assert chamadas == [PROD_CS, DEV_CS]
-    assert conn_prod.closed is True
-    assert conn_dev.closed is True
+    assert resultado.passos_concluidos == ["schema", "usuario", "dados", "cartorio", "cartorio_id", "parametros_destino"]
+    assert conexoes["prod-host"].closed is True
     assert any(e.kind == "all_done" for e in eventos)
 
 
-def test_executar_criacao_base_interino_roda_passo_extra(monkeypatch):
+def test_reaproveita_uma_unica_conexao_quando_servidores_sao_iguais(monkeypatch):
+    # modelo, destino e o alvo de parametros "destino" apontam pro mesmo host
+    # ("prod-host") -> só deve abrir UMA conexão de verdade.
+    chamadas, conexoes = _patch_connect(monkeypatch)
+    criar_base_service.executar_criacao_base(_plano(), lambda e: None)
+    assert len(chamadas) == 1
+    assert chamadas[0].servidor == "prod-host"
+
+
+def test_interino_roda_passo_extra(monkeypatch):
     _patch_connect(monkeypatch)
-    resultado = criar_base_service.executar_criacao_base(PROD_CS, DEV_CS, _config(cart_interino=True), lambda e: None)
+    resultado = criar_base_service.executar_criacao_base(_plano(cart_interino=True), lambda e: None)
 
     assert resultado.sucesso is True
     assert resultado.passos_concluidos == [
-        "schema", "usuario", "dados", "cartorio", "cartorio_id",
-        "parametros_prod", "interino", "parametros_dev",
+        "schema", "usuario", "dados", "cartorio", "cartorio_id", "interino", "parametros_destino",
     ]
 
 
-def test_executar_criacao_base_para_no_primeiro_erro_e_nao_registra_dev(monkeypatch):
-    # Falha simulada no lote de "04_cartorio.sql" (update DadosCartorio set),
-    # depois de schema/usuario/dados já terem rodado com sucesso.
-    cursor_prod = FakeCursor(fail_on_substring="DadosCartorio set")
-    chamadas, conn_prod, conn_dev = _patch_connect(monkeypatch, cursor_prod=cursor_prod)
+def test_para_no_primeiro_erro_e_nao_registra_parametros(monkeypatch):
+    cursor_falho = FakeCursor(fail_on_substring="DadosCartorio set")
+    _patch_connect(monkeypatch, {"prod-host": cursor_falho})
     eventos = []
 
-    resultado = criar_base_service.executar_criacao_base(PROD_CS, DEV_CS, _config(), eventos.append)
+    resultado = criar_base_service.executar_criacao_base(_plano(), eventos.append)
 
     assert resultado.sucesso is False
     assert resultado.passo_falho == "cartorio"
     assert resultado.passos_concluidos == ["schema", "usuario", "dados"]
-    assert "cartorio_id" not in resultado.passos_concluidos
-    assert "parametros_prod" not in resultado.passos_concluidos
-    assert "parametros_dev" not in resultado.passos_concluidos
-    # A conexão de dev nunca deveria ter sido aberta: o registro em dev não
-    # roda quando um passo de produção falha.
-    assert DEV_CS not in chamadas
-    assert conn_prod.closed is True
-    # A conexão de dev nunca foi de fato aberta pelo serviço (só existe no
-    # fixture do teste) — nunca chegou a ser fechada.
-    assert conn_dev.closed is False
+    assert "parametros_destino" not in resultado.passos_concluidos
     assert any(e.kind == "step_error" and e.step_name == "cartorio" for e in eventos)
 
 
-def test_executar_criacao_base_falha_de_conexao_reporta_erro(monkeypatch):
+def test_falha_de_conexao_reporta_erro(monkeypatch):
     def _fake_connect(cs, autocommit=False):
         raise RuntimeError("servidor inacessível")
 
     monkeypatch.setattr(criar_base_service.dbc, "connect", _fake_connect)
     eventos = []
 
-    resultado = criar_base_service.executar_criacao_base(PROD_CS, DEV_CS, _config(), eventos.append)
+    resultado = criar_base_service.executar_criacao_base(_plano(), eventos.append)
 
     assert resultado.sucesso is False
     assert resultado.passo_falho == "conexao"
     assert resultado.passos_concluidos == []
+
+
+def test_pula_dados_quando_servidores_sao_diferentes(monkeypatch):
+    _patch_connect(monkeypatch)
+    eventos = []
+    plano = _plano(
+        destino_cs=DESTINO_OUTRO_SERVIDOR_CS,
+        parametros_alvos=[AlvoParametros("destino", "servidor de destino", DESTINO_OUTRO_SERVIDOR_CS)],
+    )
+
+    resultado = criar_base_service.executar_criacao_base(plano, eventos.append)
+
+    assert resultado.sucesso is True
+    assert "dados" not in resultado.passos_concluidos
+    assert any(e.kind == "step_skipped" and e.step_name == "dados" for e in eventos)
+
+
+def test_pula_tabelas_extras_quando_servidores_sao_diferentes(monkeypatch):
+    _patch_connect(monkeypatch)
+    eventos = []
+    plano = _plano(
+        destino_cs=DESTINO_OUTRO_SERVIDOR_CS,
+        tabelas_extras=[TabelaExtra("Bancos", ["Codigo", "Nome"])],
+        parametros_alvos=[AlvoParametros("destino", "servidor de destino", DESTINO_OUTRO_SERVIDOR_CS)],
+    )
+
+    resultado = criar_base_service.executar_criacao_base(plano, eventos.append)
+
+    assert resultado.sucesso is True
+    assert "tabelas_extras" not in resultado.passos_concluidos
+    assert any(e.kind == "step_skipped" and e.step_name == "tabelas_extras" for e in eventos)
+
+
+def test_copia_tabelas_extras_quando_mesmo_servidor(monkeypatch):
+    cursor = FakeCursor()
+    _patch_connect(monkeypatch, {"prod-host": cursor})
+    plano = _plano(tabelas_extras=[TabelaExtra("Bancos", ["Codigo", "Nome"])])
+
+    resultado = criar_base_service.executar_criacao_base(plano, lambda e: None)
+
+    assert resultado.sucesso is True
+    assert "tabelas_extras" in resultado.passos_concluidos
+    assert any("INSERT INTO [Gestor_SP_Teste].dbo.[Bancos]" in sql for sql in cursor.executed)
+
+
+def test_registra_parametros_em_multiplos_servidores_distintos(monkeypatch):
+    cursor_modelo = FakeCursor()
+    cursor_pp = FakeCursor()
+    _patch_connect(monkeypatch, {"prod-host": cursor_modelo, "100.77.102.1,1435": cursor_pp})
+    plano = _plano(parametros_alvos=[
+        AlvoParametros("modelo", "servidor da base modelo", MODELO_CS),
+        AlvoParametros("servidorpp", "ServidorPP (nosso)", PP_CS),
+    ])
+
+    resultado = criar_base_service.executar_criacao_base(plano, lambda e: None)
+
+    assert resultado.sucesso is True
+    assert resultado.passos_concluidos[-2:] == ["parametros_modelo", "parametros_servidorpp"]
+    assert any("USE [Gestor_Parametros]" in sql for sql in cursor_modelo.executed)
+    assert any("INSERT INTO [dbo].[Parametros_Clientes]" in sql for sql in cursor_pp.executed)
+
+
+def test_montar_insert_parametros_cliente_inclui_todas_as_13_colunas():
+    sql = criar_base_service.montar_insert_parametros_cliente(_parametros_cfg())
+    for coluna in criar_base_service.PARAMETROS_CLIENTE_COLUNAS:
+        assert f"[{coluna}]" in sql
+    assert "N'INR - Gestor_SP_Teste'" in sql
+    assert "N'https://gestor-clientes-git-main-propackages-projects.vercel.app/api/notaries/'" in sql

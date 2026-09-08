@@ -8,12 +8,14 @@ import traceback
 from tkinter import filedialog, messagebox, ttk
 
 from src.gui.configuration_panel import ConfigurationPanel
+from src.gui.connection_dialog import show_connection_dialog
 from src.gui.criar_base_panel import CriarBasePanel
 from src.gui.excluir_contas_panel import ExcluirContasPanel
 from src.gui.import_panel import ImportPanel
 from src.models.session import SessionContext
 from src.services import (
-    criar_base_service, delete_service, excel_reader, settings_service, sql_generator, validation_service,
+    criar_base_service, db_connection_service, delete_service, excel_reader, settings_service, sql_generator,
+    validation_service,
 )
 from src.services.excel_reader import ExcelReadError
 from src.services.reference_loader import load_reference_data
@@ -62,10 +64,17 @@ CHECKBOX_COLUNAS = [
 class MainWindow(tk.Tk):
     def __init__(self, session: SessionContext):
         super().__init__()
-        self.title(f"{APP_TITLE} — {session.base_ativa}")
         self.minsize(1100, 720)
+        self._verificar_conexao_after_id = None
+        self._inicializar_sessao(session)
 
+    def _inicializar_sessao(self, session: SessionContext):
+        """Monta toda a janela para a `session` dada — usado tanto na
+        abertura do app quanto ao trocar de cliente (ver _trocar_cliente),
+        que destrói os widgets antigos e chama isto de novo em cima do
+        mesmo Tk root."""
         self.session = session
+        self.title(f"{APP_TITLE} — {session.base_ativa}")
         self.reference = load_reference_data()
         self.ultimas_config = settings_service.load_last_settings()
 
@@ -128,17 +137,25 @@ class MainWindow(tk.Tk):
 
     def _build_status_conexao(self, container):
         """Indicador de conexão com o banco: bolinha verde/vermelha + qual
-        servidor/base está ativa. Verificado agora e periodicamente com um
-        'SELECT 1' leve, para refletir se a conexão caiu."""
+        servidor/base está ativa, com o botão "Trocar cliente" logo abaixo.
+        Verificado agora e periodicamente com um 'SELECT 1' leve, para
+        refletir se a conexão caiu."""
         status = ttk.Frame(container)
         status.pack(side="right")
 
-        self.status_conexao_bolinha = tk.Canvas(status, width=12, height=12, highlightthickness=0)
+        linha_status = ttk.Frame(status)
+        linha_status.pack(side="top", anchor="e")
+
+        self.status_conexao_bolinha = tk.Canvas(linha_status, width=12, height=12, highlightthickness=0)
         self.status_conexao_bolinha.pack(side="left", padx=(0, 6))
         self._bolinha_id = self.status_conexao_bolinha.create_oval(1, 1, 11, 11, fill="#8c8c8c", outline="")
 
-        self.status_conexao_label = ttk.Label(status, text="Verificando conexão...", foreground="#8c8c8c")
+        self.status_conexao_label = ttk.Label(linha_status, text="Verificando conexão...", foreground="#8c8c8c")
         self.status_conexao_label.pack(side="left")
+
+        ttk.Button(status, text="Trocar cliente", command=self._trocar_cliente).pack(
+            side="top", anchor="e", pady=(4, 0)
+        )
 
         self._verificar_conexao()
 
@@ -158,7 +175,28 @@ class MainWindow(tk.Tk):
             self.status_conexao_label.configure(
                 text=f"Desconectado: {servidor} — {base}", foreground="#c0392b",
             )
-        self.after(30000, self._verificar_conexao)
+        self._verificar_conexao_after_id = self.after(30000, self._verificar_conexao)
+
+    def _trocar_cliente(self):
+        """Abre de novo a tela de login (mesmo diálogo do início do app)
+        pra escolher outro cliente/base. Se o usuário conectar de fato, a
+        janela inteira é reconstruída em cima da nova sessão — dados não
+        salvos da sessão atual (planilha carregada, configurações) são
+        perdidos, mas nada é executado no banco por causa da troca em si."""
+        nova_sessao = show_connection_dialog(self)
+        if nova_sessao is None:
+            return  # cancelado no diálogo: mantém a sessão atual
+
+        sessao_antiga = self.session
+        if self._verificar_conexao_after_id is not None:
+            self.after_cancel(self._verificar_conexao_after_id)
+            self._verificar_conexao_after_id = None
+
+        for widget in self.winfo_children():
+            widget.destroy()
+        self._inicializar_sessao(nova_sessao)
+
+        db_connection_service.close(sessao_antiga.connection)
 
     def _switch_tab(self, chave: str):
         self.tab_frames[chave].tkraise()
@@ -561,18 +599,15 @@ class MainWindow(tk.Tk):
     # ------------------------------------------------------------------
     # Criação de base (thread de trabalho + fila thread-safe -> GUI)
     # ------------------------------------------------------------------
-    def _on_provisionar_base(self, cfg, prod_cs, dev_cs):
+    def _on_provisionar_base(self, plano):
         self.criar_base_panel.set_busy(True)
         self._progress_queue = queue.Queue()
-        thread = threading.Thread(target=self._worker_provisionar, args=(cfg, prod_cs, dev_cs), daemon=True)
+        thread = threading.Thread(target=self._worker_provisionar, args=(plano,), daemon=True)
         thread.start()
         self.after(100, self._poll_progress_queue)
 
-    def _worker_provisionar(self, cfg, prod_cs, dev_cs):
-        resultado = criar_base_service.executar_criacao_base(
-            prod_cs, dev_cs, cfg,
-            on_progress=self._progress_queue.put,
-        )
+    def _worker_provisionar(self, plano):
+        resultado = criar_base_service.executar_criacao_base(plano, on_progress=self._progress_queue.put)
         self._progress_queue.put(("__RESULTADO__", resultado))
 
     def _poll_progress_queue(self):
