@@ -28,3 +28,11 @@ def sql_string_ascii(texto: str) -> str:
 def sql_number(valor) -> str:
     """Formata um valor numérico para uso direto (sem aspas) no SQL."""
     return str(valor)
+
+
+def quote_identifier(nome: str) -> str:
+    """Coloca um identificador T-SQL (nome de tabela/base/coluna) entre
+    colchetes, dobrando ']' internos — mesma regra de quoting de
+    identificadores do SQL Server. Usado para montar `USE [base];` com o
+    nome exato da base ativa da sessão."""
+    return f"[{str(nome).replace(']', ']]')}]"

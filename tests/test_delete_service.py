@@ -108,12 +108,43 @@ def test_montar_script_exclusao_trata_valor_nulo():
     assert "[Nome] IS NULL" in script
 
 
+def test_montar_script_exclusao_sem_base_ativa_nao_tem_use():
+    itens = [("[dbo].[Contas]", ("Nome",), {"Nome": "CONTA A"})]
+    script = delete_service.montar_script_exclusao(itens)
+    assert "USE " not in script
+
+
+def test_montar_script_exclusao_com_base_ativa_adiciona_use_no_topo():
+    itens = [("[dbo].[Contas]", ("Nome",), {"Nome": "CONTA A"})]
+    script = delete_service.montar_script_exclusao(itens, base_ativa="Gestor_SP_Teste")
+    assert script.startswith("USE [Gestor_SP_Teste];")
+    # o USE precisa vir antes do DELETE no texto
+    assert script.index("USE [Gestor_SP_Teste]") < script.index("DELETE FROM")
+
+
+def test_montar_script_exclusao_escapa_colchete_no_nome_da_base():
+    itens = [("[dbo].[Contas]", ("Nome",), {"Nome": "CONTA A"})]
+    script = delete_service.montar_script_exclusao(itens, base_ativa="Gestor]Estranho")
+    assert "USE [Gestor]]Estranho];" in script
+
+
+def test_executar_script_roda_o_texto_recebido_sem_alteracao(fake_cursor, fake_connection):
+    delete_service.executar_script(fake_connection, "USE [Base];\nDELETE FROM X;")
+    assert fake_cursor.executed == ["USE [Base];\nDELETE FROM X;"]
+
+
 def test_executar_exclusoes_roda_o_script_como_um_unico_lote(fake_cursor, fake_connection):
     itens = [("[dbo].[Contas]", ("Nome",), {"Nome": "CONTA A"})]
     total = delete_service.executar_exclusoes(fake_connection, itens)
     assert total == 1
     assert len(fake_cursor.executed) == 1
     assert "DELETE FROM [dbo].[Contas]" in fake_cursor.executed[0]
+
+
+def test_executar_exclusoes_com_base_ativa_inclui_use_no_lote_executado(fake_cursor, fake_connection):
+    itens = [("[dbo].[Contas]", ("Nome",), {"Nome": "CONTA A"})]
+    delete_service.executar_exclusoes(fake_connection, itens, base_ativa="Gestor_SP_Teste")
+    assert fake_cursor.executed[0].startswith("USE [Gestor_SP_Teste];")
 
 
 def test_executar_exclusoes_sem_itens_nao_executa(fake_cursor, fake_connection):

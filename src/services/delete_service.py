@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from src.services.sql_generator import _indent, _wrap_transaction
 from src.utils import constants as C
-from src.utils.sql_escape import sql_string
+from src.utils.sql_escape import quote_identifier, sql_string
 
 FILTRO_REMUNERACAO = "REMUNERAÇÃO"
 
@@ -143,10 +143,14 @@ def executar_consultas(connection, consultas) -> list:
     return resultados
 
 
-def montar_script_exclusao(itens) -> str:
-    """Monta um único script T-SQL com um DELETE por item selecionado,
-    dentro de uma transação (BEGIN TRY/CATCH, igual aos scripts de
-    geração) — ou tudo é excluído, ou nada é, em caso de erro.
+def montar_script_exclusao(itens, base_ativa: str = None) -> str:
+    """Monta o script T-SQL completo que será executado: um `USE [base]`
+    explícito no topo (garante, no próprio texto do script, que roda na base
+    certa mesmo que a conexão um dia deixe de fixar isso sozinha) seguido de
+    um DELETE por item selecionado, dentro de uma transação (BEGIN TRY/CATCH,
+    igual aos scripts de geração) — ou tudo é excluído, ou nada é, em caso de
+    erro. Este é o mesmo texto mostrado na caixa de confirmação antes de
+    executar (ver ExcluirContasPanel / MainWindow._excluir_contas_selecionadas).
 
     `itens`: lista de (tabela, colunas_chave, linha_dict).
     """
@@ -161,16 +165,25 @@ def montar_script_exclusao(itens) -> str:
                 condicoes.append(f"[{col}] = {sql_string(valor)}")
         linhas_sql.append(f"DELETE FROM {tabela} WHERE {' AND '.join(condicoes)};")
     corpo = _indent(linhas_sql)
-    return _wrap_transaction(corpo)
+    script = _wrap_transaction(corpo)
+    if base_ativa:
+        script = f"USE {quote_identifier(base_ativa)};\r\n\r\n{script}"
+    return script
 
 
-def executar_exclusoes(connection, itens) -> int:
-    """Executa o script de exclusão como um único lote (mesmo padrão do
-    'Executar no banco' da aba Criar contas). Retorna a quantidade de itens
-    que foram enviados para exclusão."""
-    if not itens:
-        return 0
-    script = montar_script_exclusao(itens)
+def executar_script(connection, script: str) -> None:
+    """Executa um script já montado (por `montar_script_exclusao`) como um
+    único lote — o mesmo texto que o usuário viu e confirmou."""
     cursor = connection.cursor()
     cursor.execute(script)
+
+
+def executar_exclusoes(connection, itens, base_ativa: str = None) -> int:
+    """Monta e executa o script de exclusão como um único lote (mesmo padrão
+    do 'Executar no banco' da aba Criar contas). Retorna a quantidade de
+    itens que foram enviados para exclusão."""
+    if not itens:
+        return 0
+    script = montar_script_exclusao(itens, base_ativa)
+    executar_script(connection, script)
     return len(itens)

@@ -17,6 +17,7 @@ from src.services import (
 )
 from src.services.excel_reader import ExcelReadError
 from src.services.reference_loader import load_reference_data
+from src.utils.sql_escape import quote_identifier
 
 APP_TITLE = "Gerador de Plano de Contas e Scripts SQL"
 
@@ -346,31 +347,53 @@ class MainWindow(tk.Tk):
         if not self._validar_dados():
             return
 
-        if not messagebox.askyesno(
-            "Executar no banco",
-            f"Isto vai executar {len(chaves)} script(s) diretamente na base ativa "
-            f"'{self.session.base_ativa}'.\n\nEsta ação grava direto no banco do cliente "
-            "e não é reversível automaticamente. Deseja continuar?",
-            icon="warning",
+        try:
+            settings = self.config_panel.get_settings()
+            resultados = dict(zip(PROCESS_KEYS, sql_generator.generate_all(self.accounts, settings, self.reference)))
+        except Exception as exc:
+            messagebox.showerror("Erro ao gerar scripts", f"Ocorreu um erro ao gerar os scripts SQL:\n{exc}")
+            traceback.print_exc()
+            self._status("Falha ao gerar scripts.")
+            return
+
+        resumo = "\n".join(f"- {PROCESS_LABELS[chave]}" for chave in chaves)
+        script_preview = self._montar_preview_execucao_no_banco(chaves, resultados)
+
+        if not self._confirmar_execucao_sql(
+            "Confirmar execução no banco",
+            f"Isto vai executar {len(chaves)} script(s) diretamente na base ativa '{self.session.base_ativa}':",
+            resumo,
+            script_preview,
+            texto_botao="Executar",
         ):
             return
 
         try:
-            settings = self.config_panel.get_settings()
-            resultados = dict(zip(PROCESS_KEYS, sql_generator.generate_all(self.accounts, settings, self.reference)))
-            settings_service.save_last_settings(settings, self.ultimas_config.get("ultimo_diretorio", ""))
-
             cursor = self.session.connection.cursor()
+            cursor.execute(f"USE {quote_identifier(self.session.base_ativa)};")
             executados = []
             for chave in chaves:
                 cursor.execute(resultados[chave].sql)
                 executados.append(PROCESS_LABELS[chave])
+            settings_service.save_last_settings(settings, self.ultimas_config.get("ultimo_diretorio", ""))
             self._status(f"Executado no banco '{self.session.base_ativa}': {', '.join(executados)}.")
             messagebox.showinfo("Executar no banco", f"Executado com sucesso na base '{self.session.base_ativa}'.")
         except Exception as exc:
             messagebox.showerror("Erro ao executar no banco", f"Falha ao executar no banco:\n{exc}")
             traceback.print_exc()
             self._status("Falha ao executar no banco.")
+
+    def _montar_preview_execucao_no_banco(self, chaves: list, resultados: dict) -> str:
+        """Monta o texto exato exibido na confirmação: um `USE [base]` no
+        topo seguido de cada script selecionado, na mesma formatação usada
+        ao salvar um arquivo único (ver _salvar_arquivo_unico) — cada script
+        já é transacional por conta própria (BEGIN TRY/CATCH), então rodam
+        como lotes separados (GO), exatamente como são executados abaixo."""
+        blocos = [f"USE {quote_identifier(self.session.base_ativa)};"]
+        for chave in chaves:
+            cabecalho = f"-- ===== {NOMES_ARQUIVO[chave]} ({PROCESS_LABELS[chave]}) ====="
+            blocos.append(f"{cabecalho}\n{resultados[chave].sql}")
+        return "\n\nGO\n\n".join(blocos)
 
     # ------------------------------------------------------------------
     # Excluir contas (consulta + exclusão do que já existe no banco)
@@ -401,18 +424,20 @@ class MainWindow(tk.Tk):
             contagem[titulo] = contagem.get(titulo, 0) + 1
         resumo = "\n".join(f"- {titulo}: {qtd}" for titulo, qtd in contagem.items())
 
-        if not messagebox.askyesno(
-            "Excluir contas",
-            f"Isto vai excluir {len(itens)} registro(s) diretamente na base ativa "
-            f"'{self.session.base_ativa}':\n\n{resumo}\n\n"
-            "Esta ação grava direto no banco do cliente e não é reversível automaticamente. Deseja continuar?",
-            icon="warning",
+        itens_delete = [(tabela, colunas_chave, linha) for _, tabela, colunas_chave, linha in itens]
+        script = delete_service.montar_script_exclusao(itens_delete, self.session.base_ativa)
+
+        if not self._confirmar_execucao_sql(
+            "Confirmar exclusão",
+            f"Isto vai excluir {len(itens)} registro(s) diretamente na base ativa '{self.session.base_ativa}':",
+            resumo,
+            script,
+            texto_botao="Excluir",
         ):
             return
 
         try:
-            itens_delete = [(tabela, colunas_chave, linha) for _, tabela, colunas_chave, linha in itens]
-            delete_service.executar_exclusoes(self.session.connection, itens_delete)
+            delete_service.executar_script(self.session.connection, script)
             messagebox.showinfo("Excluir contas", f"{len(itens)} registro(s) excluído(s) com sucesso.")
             self._status(f"{len(itens)} registro(s) excluído(s) na base '{self.session.base_ativa}'.")
             self._consultar_exclusoes()
@@ -420,6 +445,72 @@ class MainWindow(tk.Tk):
             messagebox.showerror("Excluir contas", f"Falha ao excluir os registros selecionados:\n{exc}")
             traceback.print_exc()
             self._status("Falha ao excluir registros.")
+
+    def _confirmar_execucao_sql(
+        self, titulo_janela: str, cabecalho: str, resumo: str, script: str, texto_botao: str = "Executar",
+    ) -> bool:
+        """Mostra numa janela o SQL exato (com o USE da base ativa no topo)
+        que será executado, para o usuário revisar antes de confirmar — o
+        mesmo texto é depois enviado ao banco, sem reconstrução. Usado tanto
+        por 'Executar no banco' (Criar contas) quanto por 'Excluir
+        selecionados' (Excluir contas)."""
+        dialog = tk.Toplevel(self)
+        dialog.title(titulo_janela)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.geometry("760x560")
+        dialog.minsize(560, 400)
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(2, weight=1)
+
+        ttk.Label(
+            dialog, text=cabecalho, font=("Segoe UI", 10, "bold"), wraplength=720,
+        ).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 4))
+        ttk.Label(dialog, text=resumo, wraplength=720).grid(row=1, column=0, sticky="w", padx=10)
+
+        ttk.Label(
+            dialog, text="SQL que será executado:", font=("Segoe UI", 9, "bold"),
+        ).grid(row=2, column=0, sticky="nw", padx=10, pady=(10, 0))
+
+        texto_frame = ttk.Frame(dialog)
+        texto_frame.grid(row=3, column=0, sticky="nsew", padx=10)
+        dialog.rowconfigure(3, weight=1)
+        texto_frame.columnconfigure(0, weight=1)
+        texto_frame.rowconfigure(0, weight=1)
+
+        txt = tk.Text(texto_frame, wrap="none", font=("Consolas", 9))
+        scroll_y = ttk.Scrollbar(texto_frame, orient="vertical", command=txt.yview)
+        scroll_x = ttk.Scrollbar(texto_frame, orient="horizontal", command=txt.xview)
+        txt.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+        txt.grid(row=0, column=0, sticky="nsew")
+        scroll_y.grid(row=0, column=1, sticky="ns")
+        scroll_x.grid(row=1, column=0, sticky="ew")
+        txt.insert("1.0", script)
+        txt.configure(state="disabled")
+
+        ttk.Label(
+            dialog,
+            text="Esta ação grava direto no banco do cliente e não é reversível automaticamente.",
+            foreground="#b00020",
+        ).grid(row=4, column=0, sticky="w", padx=10, pady=(8, 0))
+
+        resultado = {"confirmado": False}
+
+        def confirmar():
+            resultado["confirmado"] = True
+            dialog.destroy()
+
+        def cancelar():
+            dialog.destroy()
+
+        botoes = ttk.Frame(dialog)
+        botoes.grid(row=5, column=0, sticky="ew", padx=10, pady=10)
+        ttk.Button(botoes, text="Cancelar", command=cancelar).pack(side="right")
+        ttk.Button(botoes, text=texto_botao, command=confirmar).pack(side="right", padx=(0, 8))
+
+        dialog.protocol("WM_DELETE_WINDOW", cancelar)
+        dialog.wait_window()
+        return resultado["confirmado"]
 
     def _salvar_um_script(self, chave: str, resultado):
         caminho = filedialog.asksaveasfilename(

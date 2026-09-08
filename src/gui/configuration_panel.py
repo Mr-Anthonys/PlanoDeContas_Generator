@@ -220,7 +220,10 @@ class ConfigurationPanel(ttk.LabelFrame):
 
         ttk.Label(col3, text="Texto do histórico:", font=("Segoe UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=(8, 0))
         self.entry_historico_texto = ttk.Entry(col3, textvariable=self.var_historico_texto)
-        self.entry_historico_texto.grid(row=5, column=0, sticky="we", pady=(0, 8))
+        self.entry_historico_texto.grid(row=5, column=0, sticky="we", pady=(0, 2))
+        ttk.Label(
+            col3, text='Exemplo (mais usado): "EMOLUMENTOS RECEBIDOS - QTD DE ATOS @"', foreground="#555",
+        ).grid(row=6, column=0, sticky="w", pady=(0, 8))
 
         # --- Historico1 / Historico2 / Historico3 (texto livre) ----------
         ttk.Label(col4, text="Historico1:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w")
