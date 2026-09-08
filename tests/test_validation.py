@@ -42,6 +42,15 @@ def test_nomes_duplicados_sao_marcados_e_nao_descartados():
     assert "duplicado" in accounts[0].situacao.lower()
 
 
+def test_nome_igual_em_grupos_diferentes_nao_e_duplicado():
+    accounts = validation_service.validate_accounts([
+        _raw(2, "CONTA X", "GRUPO A", "1"),
+        _raw(3, "conta x", "GRUPO B", "2"),
+    ])
+    assert accounts[0].valido
+    assert accounts[1].valido
+
+
 def test_codigos_duplicados_sao_marcados():
     accounts = validation_service.validate_accounts([
         _raw(2, "CONTA A", "GRUPO A", "10"),
@@ -73,11 +82,23 @@ def test_validate_settings_regime_invalido():
     assert any("Regime" in e for e in erros)
 
 
-def test_validate_settings_tipo_arq_invalido():
+def test_validate_settings_tipo_arq_vazio():
     reference = load_reference_data()
-    settings = GenerationSettings(tipo_arq="NaoExiste", historico_texto="X @", historico1="Qtd")
+    settings = GenerationSettings(tipo_arq="", historico_texto="X @", historico1="Qtd")
     erros = validation_service.validate_settings(settings, reference)
     assert any("TipoArq" in e for e in erros)
+
+
+def test_validate_settings_tipo_arq_fora_da_referencia_e_aceito():
+    """TipoArq, InterfaceComum e InterfaceFormaPgto são texto livre: qualquer
+    valor não vazio é aceito, mesmo sem corresponder a um modelo conhecido."""
+    reference = load_reference_data()
+    settings = GenerationSettings(
+        tipo_arq="Modelo Personalizado", interface_comum="Modelo Personalizado",
+        interface_forma_pgto="Modelo Personalizado", historico_texto="X @", historico1="Qtd",
+    )
+    erros = validation_service.validate_settings(settings, reference)
+    assert erros == []
 
 
 def test_validate_settings_ok():

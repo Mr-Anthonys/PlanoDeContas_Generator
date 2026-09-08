@@ -27,17 +27,29 @@ class ReferenceData:
 
     @property
     def tipos_arquivo(self):
-        """Lista dos nomes de TipoArq disponíveis (ex.: Emolumentos)."""
+        """Lista dos nomes de TipoArq conhecidos (ex.: Emolumentos), usados
+        apenas como sugestão/modelo de partida — TipoArq, InterfaceComum e
+        InterfaceFormaPgto aceitam qualquer texto digitado pelo usuário."""
         return list(self._config.get("tipos_arquivo", {}).keys())
 
+    def _modelo(self, nome: str) -> dict:
+        """Retorna o modelo de referência cujo nome bate com o digitado
+        (ignorando maiúsculas/minúsculas); se não houver correspondência,
+        cai no primeiro modelo cadastrado como padrão de preenchimento."""
+        modelos = self._config.get("tipos_arquivo", {})
+        for chave, modelo in modelos.items():
+            if chave.strip().lower() == (nome or "").strip().lower():
+                return modelo
+        return next(iter(modelos.values()))
+
     def interface_arq(self, tipo_arq: str) -> dict:
-        return self._config["tipos_arquivo"][tipo_arq]["interface_arq"]
+        return self._modelo(tipo_arq)["interface_arq"]
 
     def interface_comum(self, nome: str) -> dict:
-        return self._config["tipos_arquivo"][nome]["interface_comum"]
+        return self._modelo(nome)["interface_comum"]
 
     def interface_forma_pgto(self, nome: str) -> dict:
-        return self._config["tipos_arquivo"][nome]["interface_forma_pgto"]
+        return self._modelo(nome)["interface_forma_pgto"]
 
 
 def load_reference_data(caminho: str = None) -> ReferenceData:

@@ -109,6 +109,24 @@ def test_interface_contas_nao_usa_identity_nem_consulta_por_nome():
     assert "N'42'" in resultado.sql
 
 
+def test_tipo_arq_personalizado_fora_da_referencia_nao_quebra_geracao():
+    """TipoArq/InterfaceComum/InterfaceFormaPgto são texto livre: um nome que
+    não existe no config.json deve gerar normalmente (usando um modelo padrão
+    de preenchimento), com NomeTipo refletindo o texto digitado."""
+    settings = _settings(
+        tipo_arq="Meu Modelo Novo", interface_comum="Meu Modelo Novo", interface_forma_pgto="Meu Modelo Novo",
+    )
+    reference = load_reference_data()
+    resultado = sql_generator.generate_interface_arq(settings, reference)
+    assert "N'Meu Modelo Novo'" in resultado.sql
+
+    resultado_comum = sql_generator.generate_interface_comum(settings, reference)
+    assert "N'Meu Modelo Novo'" in resultado_comum.sql
+
+    resultado_pgto = sql_generator.generate_interface_forma_pgto(settings, reference)
+    assert "N'Meu Modelo Novo'" in resultado_pgto.sql
+
+
 def test_script_completo_contem_todos_os_processos_com_separadores():
     conta = Account(linha=2, nome="CONTA A", grupo="GRUPO A", conta_origem="1")
     settings = _settings()

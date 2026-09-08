@@ -75,6 +75,33 @@ def test_historico1_obrigatorio():
     assert any("Historico1" in e for e in erros)
 
 
+def test_tres_marcadores_com_historico1_2_3_validos():
+    settings = GenerationSettings(
+        qtd_marcadores=3,
+        historico_texto="EMOLUMENTOS RECEBIDOS - QTD DE ATOS @ PROTOCOLO: @ LIVRO: @",
+        historico1="Qtd",
+        historico2="Protocolo",
+        historico3="LivroFolha",
+    )
+    assert validation_service.validate_historico(settings) == []
+
+
+def test_bloqueio_historico3_vazio_com_tres_marcadores():
+    settings = GenerationSettings(
+        qtd_marcadores=3, historico_texto="TEXTO @ @ @", historico1="Qtd", historico2="Protocolo", historico3=""
+    )
+    erros = validation_service.validate_historico(settings)
+    assert any("Historico3" in e for e in erros)
+
+
+def test_historico3_deve_ficar_vazio_com_menos_de_tres_marcadores():
+    settings = GenerationSettings(
+        qtd_marcadores=2, historico_texto="TEXTO @ @", historico1="Qtd", historico2="Protocolo", historico3="LivroFolha"
+    )
+    erros = validation_service.validate_historico(settings)
+    assert any("Historico3" in e for e in erros)
+
+
 # ---------------------------------------------------------------------------
 # Qtd/Protocolo/LivroFolha não substituem o @ em Contas.Histórico
 # ---------------------------------------------------------------------------
@@ -97,3 +124,27 @@ def test_marcadores_nao_sao_substituidos_no_cadastro_de_contas():
     assert "Qtd" in resultado_historico.sql
     assert "Protocolo" in resultado_historico.sql
     assert "EMOLUMENTOS RECEBIDOS - QTD DE ATOS @ PROTOCOLO: @" not in resultado_historico.sql
+
+
+def test_terceiro_marcador_grava_historico3_em_interface_historico():
+    settings = GenerationSettings(
+        qtd_marcadores=3,
+        historico_texto="EMOLUMENTOS RECEBIDOS - QTD DE ATOS @ PROTOCOLO: @ LIVRO: @",
+        historico1="Qtd",
+        historico2="Protocolo",
+        historico3="LivroFolha",
+    )
+    resultado = sql_generator.generate_interface_historico([_conta()], settings)
+    assert "LivroFolha" in resultado.sql
+
+
+def test_historico3_fica_vazio_com_apenas_dois_marcadores():
+    settings = GenerationSettings(
+        qtd_marcadores=2,
+        historico_texto="EMOLUMENTOS RECEBIDOS - QTD DE ATOS @ PROTOCOLO: @",
+        historico1="Qtd",
+        historico2="Protocolo",
+        historico3="",
+    )
+    resultado = sql_generator.generate_interface_historico([_conta()], settings)
+    assert "LivroFolha" not in resultado.sql

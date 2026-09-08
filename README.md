@@ -11,7 +11,7 @@ Aplicativo desktop para Windows (Python + Tkinter) que substitui o processo manu
 7. `InterfaceComum`
 8. `InterfaceFormaPgto`
 
-Nesta primeira versão o aplicativo **não se conecta ao banco de dados** — a execução dos scripts continua sendo manual, no SQL Server Management Studio ou ferramenta equivalente.
+Antes de gerar os scripts, o aplicativo pede login em um servidor SQL Server (ver [Conexão com o SQL Server](#conexão-com-o-sql-server)) — a geração dos scripts em si continua sendo local, prontos para conferir e executar manualmente (ou, dependendo da tela, executar direto na base do cliente logado).
 
 ## Arquivos de referência analisados
 
@@ -50,12 +50,13 @@ Titular  = L_IRRF 1
 
 Essa regra é exibida diretamente na interface, ao lado da escolha.
 
-## Histórico com um e dois marcadores `@`
+## Histórico com um, dois ou três marcadores `@`
 
-O texto do histórico (campo `Contas.Histórico`) pode conter um ou dois marcadores `@`. Esses marcadores **nunca são substituídos** pelo aplicativo — o texto gravado em `Contas.Histórico` mantém os `@` literais. O que o aplicativo grava, separadamente, em `InterfaceHistorico`, são os **nomes das colunas** do arquivo de origem que no futuro (em uma importação de dados, fora do escopo desta versão) substituirão cada marcador, na ordem em que aparecem:
+O texto do histórico (campo `Contas.Histórico`) pode conter um, dois ou três marcadores `@`. Esses marcadores **nunca são substituídos** pelo aplicativo — o texto gravado em `Contas.Histórico` mantém os `@` literais. O que o aplicativo grava, separadamente, em `InterfaceHistorico`, são os **nomes das colunas** do arquivo de origem que no futuro (em uma importação de dados, fora do escopo desta versão) substituirão cada marcador, na ordem em que aparecem. `Historico1`/`Historico2`/`Historico3` são campos de texto livre — o usuário escreve diretamente o nome da coluna:
 
-* **Um marcador**: o usuário informa apenas `Historico1` (ex.: `Qtd`). `Historico2` fica vazio.
-* **Dois marcadores**: o usuário informa `Historico1` (para o primeiro `@`) e `Historico2` (para o segundo `@`).
+* **Um marcador**: o usuário informa apenas `Historico1` (ex.: `Qtd`). `Historico2`/`Historico3` ficam vazios.
+* **Dois marcadores**: o usuário informa `Historico1` (para o primeiro `@`) e `Historico2` (para o segundo `@`). `Historico3` fica vazio.
+* **Três marcadores**: o usuário informa `Historico1`, `Historico2` e `Historico3` (um para cada `@`, na ordem em que aparecem).
 
 Exemplo:
 
@@ -75,13 +76,12 @@ O aplicativo valida que a quantidade de `@` no texto bate exatamente com a quant
 | **2. GrupoPortal** | Um registro por grupo **realmente usado** pelas contas importadas (não repete grupos). |
 | **3. GrupoContábil** | Idem, para a tabela `GrupoContábil`. |
 | **4. InterfaceContas** | Vincula `ContaOrigem` (exatamente como informado na planilha) ao nome da conta (`ContaSGF`) e ao `TipoArq` escolhido. |
-| **5. InterfaceHistorico** | Grava, para cada conta, `Historico1`/`Historico2` (colunas que substituirão os `@`) associados ao mesmo `ContaOrigem` da linha. |
+| **5. InterfaceHistorico** | Grava, para cada conta, `Historico1`/`Historico2`/`Historico3` (colunas que substituirão os `@`) associados ao mesmo `ContaOrigem` da linha. |
 | **6. InterfaceArq** | Parâmetros de leitura do arquivo para o `TipoArq` escolhido. |
 | **7. InterfaceComum** | Mapeamento dos cabeçalhos do arquivo de origem para os campos lógicos do sistema. |
 | **8. InterfaceFormaPgto** | Conversão da forma de pagamento do arquivo de origem para a forma usada pelo SGF. |
-| **9. Script completo** | Reúne os 8 processos acima, na ordem lógica de execução, com comentários separadores. |
 
-Cada painel tem título, descrição, área de texto SQL somente leitura (fonte monoespaçada), contador de comandos gerados e botão **Copiar** (copia somente aquele processo). Há também os botões **Copiar todos os scripts** e **Salvar SQL em arquivo** / **Salvar cada processo separadamente**.
+O usuário escolhe, por checkbox, quais dos 8 processos deseja gerar (um único processo, alguns deles, ou todos via **TODOS**). Ao clicar em **Gerar**, o aplicativo valida os dados e salva o(s) script(s) escolhido(s) em disco: um único arquivo `.sql` quando só um processo é selecionado, ou uma pasta com um arquivo por processo quando mais de um é selecionado.
 
 Todo texto/valor gerado escapa apóstrofos (dobrando-os) e usa strings Unicode `N'...'`, preservando acentuação. Cada processo é independente (não depende de variáveis ou tabelas temporárias de outro script) e é embrulhado em uma transação `BEGIN TRY/BEGIN TRANSACTION ... COMMIT/CATCH ROLLBACK`, podendo ser executado isoladamente.
 
@@ -95,7 +95,7 @@ Todo texto/valor gerado escapa apóstrofos (dobrando-os) e usa strings Unicode `
 5. InterfaceHistorico             (composição do histórico)
 ```
 
-Essa é a ordem usada na aba "Script completo".
+Essa é a ordem usada por `sql_generator.generate_full_script`, disponível para uso programático/testes mesmo sem uma aba dedicada na interface.
 
 ## Correções realizadas em relação à planilha original
 
@@ -112,9 +112,8 @@ Confirmadas por análise célula a célula das fórmulas (ver `docs/regras_ident
 
 ## Limitações da primeira versão
 
-* Não há conexão direta com o banco de dados — a execução dos scripts é manual.
-* O histórico (texto-base, `Historico1`/`Historico2`) é único por lote de importação (aplicado a todas as contas importadas na mesma sessão), assim como no processo manual original — não há um histórico diferente por conta na mesma planilha.
-* Suporta no máximo 2 marcadores `@` no histórico, pois a tabela `InterfaceHistorico` só tem `Historico1`/`Historico2` (mais 6 pares `Historico3`..`Historico8`/`Precedente3`..`8` existentes na tabela real, porém nunca usados no processo atual e mantidos fixos como vazios nesta versão).
+* O histórico (texto-base, `Historico1`/`Historico2`/`Historico3`) é único por lote de importação (aplicado a todas as contas importadas na mesma sessão), assim como no processo manual original — não há um histórico diferente por conta na mesma planilha.
+* Suporta no máximo 3 marcadores `@` no histórico, pois a interface só oferece `Historico1`/`Historico2`/`Historico3` (os pares `Historico4`..`Historico8`/`Precedente4`..`8` existem na tabela real, porém nunca usados no processo atual e mantidos fixos como vazios nesta versão).
 * Os 3 conjuntos de `TipoArq`/`InterfaceComum`/`InterfaceFormaPgto` disponíveis (`Emolumentos`, `Emolumentos_Protesto`, `Emolumentos_Notas`) são os confirmados na planilha de referência; novos tipos exigem editar `config.json`.
 * Sem suporte a múltiplos idiomas ou temas.
 
@@ -134,6 +133,39 @@ pip install -r requirements.txt
 .venv\Scripts\activate
 python app.py
 ```
+
+## Conexão com o SQL Server
+
+Antes de abrir a janela principal, o aplicativo pede login em um servidor SQL Server. Há dois modos, com o automático preferido sempre que possível.
+
+### Modo automático (variável de ambiente `GESTOR_PARAM`)
+
+Replica o mesmo fluxo usado pelo Gestor Financeiro (VB6, `modBancoDeParametros.bas`): cada máquina tem uma variável de ambiente `GESTOR_PARAM` apontando para o servidor central de parâmetros.
+
+1. O aplicativo lê `GESTOR_PARAM` do ambiente da máquina.
+2. Conecta ao banco `Gestor_Parametros` desse servidor usando o login fixo do sistema (`Gestor_Parametros_Login` — o mesmo login usado pelo Gestor Financeiro, não é por usuário).
+3. Lista os clientes cadastrados em `Gestor_Parametros.Parametros_Clientes` (nome, servidor, banco, usuário/senha daquele cliente, ODBC, diretórios, URLs de dashboard etc.).
+4. O usuário escolhe o cliente na lista; o aplicativo conecta à base **daquele cliente** usando o Servidor/Usuário/Senha/Banco da linha selecionada, sem precisar digitar nada manualmente.
+
+Se `GESTOR_PARAM` não estiver definida nesta máquina, ou a conexão ao banco central falhar (rede, permissão, driver ODBC ausente), o aplicativo cai automaticamente para o modo manual.
+
+### Modo manual (fallback)
+
+Servidor, usuário e senha digitados à mão, com um botão **Testar conexão** que lista as bases `Gestor_*` existentes no servidor informado para escolha da "base ativa". É o comportamento original da tela de login, preservado como alternativa — útil em máquinas sem `GESTOR_PARAM`, ou para acessar um servidor fora do registro central.
+
+Um link no rodapé da tela de login alterna entre os dois modos a qualquer momento, sem precisar reiniciar o aplicativo.
+
+### Onde isso mora no código
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `src/services/parametros_service.py` | Lê `GESTOR_PARAM`, conecta a `Gestor_Parametros`, lista/mapeia `Parametros_Clientes`. |
+| `src/models/cliente_parametro.py` | Dataclass `ClienteParametro` — uma linha de `Parametros_Clientes`. |
+| `src/services/db_connection_service.py` | Conexão genérica via `pyodbc` (usada tanto pelo login quanto pela Criação de Base). |
+| `src/gui/connection_dialog.py` | Tela de login (modo automático + manual). |
+| `src/models/session.py` | `SessionContext` — conexão viva + base ativa, repassado à janela principal. |
+
+**Observação:** a aba "Criação de Base" **não** reaproveita as credenciais da sessão logada — tem seus próprios campos de "Servidor de produção" (pré-preenchidos com os dados da sessão atual como sugestão, mas editáveis). Isso é proposital: cada cliente em `Parametros_Clientes` pode estar hospedado em um servidor diferente, mas a base modelo escolhida precisa obrigatoriamente estar no **mesmo servidor** onde a base nova será criada (a cópia de dados em `03_dados.sql` referencia `[BaseModelo].dbo.Tabela` diretamente, sem linked server) — então "servidor onde eu logo para trabalhar" e "servidor onde eu provisiono uma base nova" são duas escolhas independentes, não a mesma coisa.
 
 ## Como executar os testes
 
@@ -156,15 +188,22 @@ O script `build.bat`: cria/reaproveita um ambiente virtual, instala as dependên
 
 ## Arquivo de configuração (`config.json`)
 
-Fonte única de verdade para: opções de `TipoArq` (com seus dados de `InterfaceArq`/`InterfaceComum`/`InterfaceFormaPgto`), opções de `Historico1`/`Historico2`, tipos de conta disponíveis, e as últimas configurações usadas pelo usuário (restauradas automaticamente na próxima abertura; há um botão **Restaurar padrões** na interface).
+Fonte única de verdade para: opções de `TipoArq` (com seus dados de `InterfaceArq`/`InterfaceComum`/`InterfaceFormaPgto`), tipos de conta disponíveis, e as últimas configurações usadas pelo usuário (restauradas automaticamente na próxima abertura).
 
 ## Descrição da interface
 
-* **Importação da planilha**: botões `Selecionar planilha`, `Carregar`, `Limpar`, caminho do arquivo e tabela de pré-visualização (linha, nome, grupo, ContaOrigem, situação — linhas inválidas destacadas).
-* **Configurações gerais**: Regime (Interino/Titular, com a regra exibida), Tipo de Conta, TipoArq, InterfaceComum, InterfaceFormaPgto, quantidade de marcadores, texto do histórico, Historico1/Historico2 (Historico2 desabilitado quando há apenas 1 marcador).
-* **Ações**: `Validar dados`, `Gerar scripts`, `Copiar todos os scripts`, `Salvar SQL em arquivo`, `Salvar cada processo separadamente`, `Restaurar padrões`.
-* **Scripts**: 9 abas (8 processos + Script completo), cada uma com texto SQL somente leitura, contador de comandos e botão `Copiar`.
-* Janela centralizada, redimensionável, com barra de status para mensagens de sucesso/erro. Erros de importação ou geração nunca fecham o aplicativo.
+Layout replica o protótipo Figma "Plano de Contas - Generator": três abas superiores clicáveis.
+
+* **`Criar contas`** — a aba principal, descrita abaixo (importação de planilha, configurações gerais, barra de geração).
+* **`Excluir contas`** — placeholder ("Em construção"); a lógica de exclusão ainda não foi especificada, nem no Python nem no CriaBase.
+* **`Criação de base`** — provisiona a base de um cliente novo (schema, usuário SQL, cópia de dados de uma base modelo, cadastro do cartório e registro em `Parametros_Clientes`), reaproveitando a conexão de servidor da sessão logada — ver [Conexão com o SQL Server](#conexão-com-o-sql-server).
+
+Dentro de `Criar contas`:
+
+* **Importação da planilha**: botões `Selecionar planilha`, `Carregar`, `Limpar`, caminho do arquivo e tabela de pré-visualização (nome, código, grupo, situação — linhas inválidas destacadas).
+* **Configurações gerais**: Regime (Interino/Titular, com a regra exibida), Tipo de Conta; `TipoArq`/`InterfaceComum`/`InterfaceFormaPgto` como campos de texto livre; quantidade de marcadores (um, dois ou três); texto do histórico; `Historico1`/`Historico2`/`Historico3` como campos de texto livre (desabilitados/limpos conforme a quantidade de marcadores escolhida).
+* **Barra de geração**: botão `Validar Dados`, um checkbox por processo (`Contas`, `GrupoPortal`, `GrupoContábil`, `InterfaceContas`, `InterfaceHistorico`, `InterfaceArq`, `InterfaceComum`, `InterfaceFormaPgto`) mais `TODOS` para selecionar/desmarcar todos de uma vez, o botão `Gerar` (salva o(s) script(s) em disco) e o botão `Executar no banco` (roda os scripts selecionados direto na base ativa da sessão logada, via `session.connection`, com confirmação prévia — grava direto no banco do cliente e não é reversível automaticamente).
+* Janela responsiva (abre maximizada, layout com pesos de grid) e redimensionável, com barra de status para mensagens de sucesso/erro. Erros de importação ou geração nunca fecham o aplicativo.
 
 ## Estrutura do projeto
 
@@ -177,10 +216,12 @@ plano-contas-generator/
 ├── pytest.ini
 ├── conftest.py
 ├── src/
-│   ├── gui/                   # main_window, import_panel, configuration_panel, sql_tabs
-│   ├── models/                # Account, GenerationSettings
+│   ├── gui/                   # connection_dialog, main_window, import_panel,
+│   │                          #   configuration_panel, criar_base_panel
+│   ├── models/                # Account, GenerationSettings, ClienteParametro, SessionContext
 │   ├── services/              # excel_reader, validation_service, sql_generator,
-│   │                          #   reference_loader, settings_service
+│   │                          #   reference_loader, settings_service,
+│   │                          #   db_connection_service, parametros_service, criar_base_service
 │   └── utils/                 # sql_escape, constants
 ├── tests/                     # pytest (unitários + integração com Conchas)
 ├── docs/regras_identificadas.md
@@ -188,13 +229,16 @@ plano-contas-generator/
 └── examples/Modelo_Importacao_Atos.xlsx
 ```
 
-## Sugestões para uma futura versão conectada ao SQL Server
+## Melhorias futuras
 
-* Executar os scripts diretamente via `pyodbc`/`pymssql`, com pré-visualização e confirmação antes do commit.
-* Consultar o banco para validar se `ContaOrigem`, `Nome` ou `TipoArq` já existem antes de gerar o SQL (hoje a checagem é só dentro do próprio lote importado).
-* Suporte a mais de 2 marcadores `@` (a tabela `InterfaceHistorico` já tem `Historico3`..`Historico8` prontos no banco, apenas não utilizados pelo processo atual).
+A versão conectada ao SQL Server já existe (login automático/manual, execução direta dos scripts na base ativa via `Executar no banco`, e provisionamento de bases novas via `Criação de base` — ver [Conexão com o SQL Server](#conexão-com-o-sql-server)). Falta ainda:
+
+* **Aba `Excluir contas`**: hoje é só um placeholder ("Em construção"); a lógica de exclusão ainda não foi especificada, nem no Python nem no CriaBase.
+* Consultar o banco para validar se `ContaOrigem`, `Nome` ou `TipoArq` já existem antes de gerar o SQL (hoje a checagem é só dentro do próprio lote importado, mesmo com `Executar no banco` disponível).
+* Pré-visualização do SQL antes de confirmar `Executar no banco` (hoje a confirmação é só um aviso textual, sem mostrar o script que será rodado).
+* Suporte a mais de 3 marcadores `@` (a tabela `InterfaceHistorico` já tem `Historico4`..`Historico8` prontos no banco, apenas não utilizados pelo processo atual).
 * Editor de `TipoArq`/`InterfaceComum`/`InterfaceFormaPgto` dentro da própria interface, em vez de editar `config.json` manualmente.
-* Histórico de execuções (log de quais scripts já foram gerados/copiados/executados).
+* Histórico de execuções (log de quais scripts já foram gerados/copiados/executados/provisionados).
 
 ## Licença
 

@@ -1,27 +1,70 @@
 """Janela principal do Gerador de Plano de Contas."""
 
-import datetime
 import os
+import queue
+import threading
 import tkinter as tk
 import traceback
 from tkinter import filedialog, messagebox, ttk
 
 from src.gui.configuration_panel import ConfigurationPanel
+from src.gui.criar_base_panel import CriarBasePanel
+from src.gui.excluir_contas_panel import ExcluirContasPanel
 from src.gui.import_panel import ImportPanel
-from src.gui.sql_tabs import SqlTabs
-from src.services import excel_reader, settings_service, sql_generator, validation_service
+from src.models.session import SessionContext
+from src.services import (
+    criar_base_service, delete_service, excel_reader, settings_service, sql_generator, validation_service,
+)
 from src.services.excel_reader import ExcelReadError
 from src.services.reference_loader import load_reference_data
 
 APP_TITLE = "Gerador de Plano de Contas e Scripts SQL"
 
+# Ordem dos 8 processos, igual à da lista retornada por sql_generator.generate_all().
+PROCESS_KEYS = [
+    "contas", "grupo_portal", "grupo_contabil", "interface_contas",
+    "interface_historico", "interface_arq", "interface_comum", "interface_forma_pgto",
+]
+
+PROCESS_LABELS = {
+    "contas": "Contas",
+    "grupo_portal": "GrupoPortal",
+    "grupo_contabil": "GrupoContábil",
+    "interface_contas": "InterfaceContas",
+    "interface_historico": "InterfaceHistorico",
+    "interface_arq": "InterfaceArq",
+    "interface_comum": "InterfaceComum",
+    "interface_forma_pgto": "InterfaceFormaPgto",
+}
+
+NOMES_ARQUIVO = {
+    "contas": "01_Contas.sql",
+    "grupo_portal": "02_GrupoPortal.sql",
+    "grupo_contabil": "03_GrupoContabil.sql",
+    "interface_contas": "04_InterfaceContas.sql",
+    "interface_historico": "05_InterfaceHistorico.sql",
+    "interface_arq": "06_InterfaceArq.sql",
+    "interface_comum": "07_InterfaceComum.sql",
+    "interface_forma_pgto": "08_InterfaceFormaPgto.sql",
+}
+
+# Agrupamento visual dos checkboxes de geração, igual ao protótipo Figma
+# (4 colunas de 2 processos cada, com "TODOS" ao lado da primeira linha).
+CHECKBOX_COLUNAS = [
+    ("contas", "grupo_portal"),
+    ("grupo_contabil", "interface_contas"),
+    ("interface_historico", "interface_arq"),
+    ("interface_comum", "interface_forma_pgto"),
+]
+
 
 class MainWindow(tk.Tk):
-    def __init__(self):
+    def __init__(self, session: SessionContext):
         super().__init__()
-        self.title(APP_TITLE)
-        self.minsize(1000, 700)
+        self.title(f"{APP_TITLE} — {session.base_ativa}")
+        self.minsize(1100, 720)
 
+        self.session = session
         self.reference = load_reference_data()
         self.ultimas_config = settings_service.load_last_settings()
 
@@ -29,7 +72,7 @@ class MainWindow(tk.Tk):
         self._erros_configuracao = []
 
         self._build_layout()
-        self._center_window()
+        self._maximizar_janela()
 
     # ------------------------------------------------------------------
     # Layout
@@ -37,43 +80,187 @@ class MainWindow(tk.Tk):
     def _build_layout(self):
         container = ttk.Frame(self, padding=8)
         container.pack(fill="both", expand=True)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(1, weight=1)
 
-        self.import_panel = ImportPanel(
-            container,
-            on_load=self._carregar_planilha,
-            on_clear=self._limpar,
-            initial_dir=self.ultimas_config.get("ultimo_diretorio", ""),
-        )
-        self.import_panel.pack(fill="both", expand=False, pady=(0, 8))
+        self._build_top_tabs(container)
 
-        self.config_panel = ConfigurationPanel(container, self.reference)
-        self.config_panel.set_from_dict(self.ultimas_config)
-        self.config_panel.pack(fill="x", pady=(0, 8))
+        content = ttk.Frame(container)
+        content.grid(row=1, column=0, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(0, weight=1)
 
-        acoes = ttk.Frame(container)
-        acoes.pack(fill="x", pady=(0, 8))
-        ttk.Button(acoes, text="Validar dados", command=self._validar_dados).pack(side="left")
-        ttk.Button(acoes, text="Gerar scripts", command=self._gerar_scripts).pack(side="left", padx=6)
-        ttk.Button(acoes, text="Copiar todos os scripts", command=self._copiar_tudo).pack(side="left", padx=6)
-        ttk.Button(acoes, text="Salvar SQL em arquivo", command=self._salvar_arquivo).pack(side="left", padx=6)
-        ttk.Button(acoes, text="Salvar cada processo separadamente", command=self._salvar_por_processo).pack(
-            side="left", padx=6
-        )
-        ttk.Button(acoes, text="Restaurar padrões", command=self._restaurar_padroes).pack(side="right")
+        self.tab_frames = {
+            "criar_contas": self._build_criar_contas_tab(content),
+            "excluir_contas": self._build_excluir_contas_tab(content),
+            "criacao_base": self._build_criacao_base_tab(content),
+        }
+        for frame in self.tab_frames.values():
+            frame.grid(row=0, column=0, sticky="nsew")
 
-        self.sql_tabs = SqlTabs(container, copy_to_clipboard=self._copiar_texto)
-        self.sql_tabs.pack(fill="both", expand=True)
+        self._switch_tab("criar_contas")
 
         self.status_var = tk.StringVar(value="Pronto.")
         status_bar = ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", padding=4)
         status_bar.pack(fill="x", side="bottom")
 
-    def _center_window(self):
+    def _build_top_tabs(self, container):
+        """Navegação superior (protótipo Figma), agora com troca real de
+        aba: rótulo clicável muda de cor e traz o painel correspondente
+        pra frente (tkraise)."""
+        tabs = ttk.Frame(container)
+        tabs.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        self.tab_labels = {}
+        rotulos = [
+            ("criar_contas", "Criar contas"),
+            ("excluir_contas", "Excluir contas"),
+            ("criacao_base", "Criação de base"),
+        ]
+        for i, (chave, texto) in enumerate(rotulos):
+            lbl = tk.Label(tabs, text=texto, font=("Segoe UI", 14, "bold"), foreground="#8c8c8c", cursor="hand2")
+            lbl.pack(side="left", padx=(0 if i == 0 else 16, 0))
+            lbl.bind("<Button-1>", lambda _e, k=chave: self._switch_tab(k))
+            self.tab_labels[chave] = lbl
+
+        self._build_status_conexao(tabs)
+
+    def _build_status_conexao(self, container):
+        """Indicador de conexão com o banco: bolinha verde/vermelha + qual
+        servidor/base está ativa. Verificado agora e periodicamente com um
+        'SELECT 1' leve, para refletir se a conexão caiu."""
+        status = ttk.Frame(container)
+        status.pack(side="right")
+
+        self.status_conexao_bolinha = tk.Canvas(status, width=12, height=12, highlightthickness=0)
+        self.status_conexao_bolinha.pack(side="left", padx=(0, 6))
+        self._bolinha_id = self.status_conexao_bolinha.create_oval(1, 1, 11, 11, fill="#8c8c8c", outline="")
+
+        self.status_conexao_label = ttk.Label(status, text="Verificando conexão...", foreground="#8c8c8c")
+        self.status_conexao_label.pack(side="left")
+
+        self._verificar_conexao()
+
+    def _verificar_conexao(self):
+        servidor = self.session.connection_settings.servidor
+        base = self.session.base_ativa
+        try:
+            cursor = self.session.connection.cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+            self.status_conexao_bolinha.itemconfigure(self._bolinha_id, fill="#28a745")
+            self.status_conexao_label.configure(
+                text=f"Conectado: {servidor} — {base}", foreground="#1e7e34",
+            )
+        except Exception:
+            self.status_conexao_bolinha.itemconfigure(self._bolinha_id, fill="#c0392b")
+            self.status_conexao_label.configure(
+                text=f"Desconectado: {servidor} — {base}", foreground="#c0392b",
+            )
+        self.after(30000, self._verificar_conexao)
+
+    def _switch_tab(self, chave: str):
+        self.tab_frames[chave].tkraise()
+        for k, lbl in self.tab_labels.items():
+            lbl.configure(foreground="#000000" if k == chave else "#8c8c8c")
+
+    def _build_criar_contas_tab(self, parent) -> ttk.Frame:
+        frame = ttk.Frame(parent)
+        frame.columnconfigure(0, weight=1)
+        # minsize garante que a caixinha de contas nunca fique espremida a
+        # ponto de sumir da tela em resoluções menores, mesmo com o painel
+        # de configurações e a barra inferior ocupando espaço fixo abaixo.
+        frame.rowconfigure(0, weight=1, minsize=260)
+
+        self.import_panel = ImportPanel(
+            frame,
+            on_load=self._carregar_planilha,
+            on_clear=self._limpar,
+            initial_dir=self.ultimas_config.get("ultimo_diretorio", ""),
+        )
+        self.import_panel.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+
+        self.config_panel = ConfigurationPanel(frame, self.reference)
+        self.config_panel.set_from_dict(self.ultimas_config)
+        self.config_panel.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
+        self._build_bottom_bar(frame)
+        return frame
+
+    def _build_excluir_contas_tab(self, parent) -> ttk.Frame:
+        self.excluir_contas_panel = ExcluirContasPanel(
+            parent, on_consultar=self._consultar_exclusoes, on_excluir=self._excluir_contas_selecionadas, padding=8,
+        )
+        return self.excluir_contas_panel
+
+    def _build_criacao_base_tab(self, parent) -> ttk.Frame:
+        self.criar_base_panel = CriarBasePanel(
+            parent, session=self.session, on_provisionar=self._on_provisionar_base, padding=8,
+        )
+        return self.criar_base_panel
+
+    def _build_bottom_bar(self, container):
+        """Barra inferior (protótipo Figma): Validar Dados | checkboxes dos
+        8 processos + TODOS | Executar no banco | Gerar."""
+        barra = ttk.Frame(container)
+        barra.grid(row=2, column=0, sticky="ew")
+
+        ttk.Button(barra, text="Validar Dados", command=self._validar_dados).pack(side="left", padx=(0, 16))
+
+        self.checkbox_vars = {key: tk.BooleanVar(value=False) for key in PROCESS_KEYS}
+        self.var_todos = tk.BooleanVar(value=False)
+
+        checkboxes_frame = ttk.Frame(barra)
+        checkboxes_frame.pack(side="left", fill="x", expand=True)
+
+        for col, (chave_topo, chave_baixo) in enumerate(CHECKBOX_COLUNAS):
+            ttk.Checkbutton(
+                checkboxes_frame, text=PROCESS_LABELS[chave_topo],
+                variable=self.checkbox_vars[chave_topo], command=self._on_checkbox_changed,
+            ).grid(row=0, column=col, sticky="w", padx=(0, 16))
+            ttk.Checkbutton(
+                checkboxes_frame, text=PROCESS_LABELS[chave_baixo],
+                variable=self.checkbox_vars[chave_baixo], command=self._on_checkbox_changed,
+            ).grid(row=1, column=col, sticky="w", padx=(0, 16))
+
+        ttk.Checkbutton(
+            checkboxes_frame, text="TODOS", variable=self.var_todos, command=self._on_todos_changed,
+            style="Todos.TCheckbutton",
+        ).grid(row=0, column=len(CHECKBOX_COLUNAS), sticky="w")
+        ttk.Style(self).configure("Todos.TCheckbutton", font=("Segoe UI", 9, "bold"))
+
+        self.var_arquivo_unico = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            barra, text="Gerar em arquivo único", variable=self.var_arquivo_unico,
+        ).pack(side="right", padx=(0, 16))
+
+        ttk.Button(barra, text="Gerar", command=self._gerar).pack(side="right")
+        ttk.Button(barra, text="Executar no banco", command=self._executar_no_banco).pack(side="right", padx=(0, 8))
+
+    def _maximizar_janela(self):
+        """Torna a janela responsiva independente do tamanho da tela: abre
+        maximizada e todo o layout usa grid/weight para se ajustar."""
         self.update_idletasks()
-        largura, altura = 1200, 800
-        x = (self.winfo_screenwidth() // 2) - (largura // 2)
-        y = (self.winfo_screenheight() // 2) - (altura // 2)
-        self.geometry(f"{largura}x{altura}+{x}+{y}")
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            largura = self.winfo_screenwidth()
+            altura = self.winfo_screenheight()
+            self.geometry(f"{largura}x{altura}+0+0")
+
+    # ------------------------------------------------------------------
+    # Checkboxes de geração
+    # ------------------------------------------------------------------
+    def _on_checkbox_changed(self):
+        self.var_todos.set(all(var.get() for var in self.checkbox_vars.values()))
+
+    def _on_todos_changed(self):
+        marcado = self.var_todos.get()
+        for var in self.checkbox_vars.values():
+            var.set(marcado)
+
+    def _chaves_selecionadas(self) -> list:
+        return [key for key in PROCESS_KEYS if self.checkbox_vars[key].get()]
 
     # ------------------------------------------------------------------
     # Ações
@@ -99,7 +286,6 @@ class MainWindow(tk.Tk):
 
     def _limpar(self):
         self.accounts = []
-        self.sql_tabs.clear()
         self._status("Dados limpos.")
 
     def _validar_dados(self) -> bool:
@@ -128,77 +314,200 @@ class MainWindow(tk.Tk):
         self._status("Dados validados com sucesso. Nenhuma inconsistência encontrada.")
         return True
 
-    def _gerar_scripts(self):
+    def _gerar(self):
+        chaves = self._chaves_selecionadas()
+        if not chaves:
+            messagebox.showwarning("Gerar", "Selecione ao menos um script (ou 'TODOS') antes de gerar.")
+            return
+        if not self._validar_dados():
+            return
+
         try:
-            if not self._validar_dados():
-                return
             settings = self.config_panel.get_settings()
-            resultados = sql_generator.generate_all(self.accounts, settings, self.reference)
-            script_completo = sql_generator.generate_full_script(self.accounts, settings, self.reference)
-            self.sql_tabs.update_results(resultados, script_completo)
+            resultados = dict(zip(PROCESS_KEYS, sql_generator.generate_all(self.accounts, settings, self.reference)))
             settings_service.save_last_settings(settings, self.ultimas_config.get("ultimo_diretorio", ""))
-            self._status("Scripts gerados com sucesso.")
+
+            if len(chaves) == 1:
+                self._salvar_um_script(chaves[0], resultados[chaves[0]])
+            elif self.var_arquivo_unico.get():
+                self._salvar_arquivo_unico(chaves, resultados)
+            else:
+                self._salvar_varios_scripts(chaves, resultados)
         except Exception as exc:
             messagebox.showerror("Erro ao gerar scripts", f"Ocorreu um erro ao gerar os scripts SQL:\n{exc}")
             traceback.print_exc()
             self._status("Falha ao gerar scripts.")
 
-    def _copiar_texto(self, texto: str):
-        if not texto.strip():
-            messagebox.showinfo("Copiar", "Não há SQL gerado para copiar. Clique em 'Gerar scripts' primeiro.")
+    def _executar_no_banco(self):
+        chaves = self._chaves_selecionadas()
+        if not chaves:
+            messagebox.showwarning("Executar no banco", "Selecione ao menos um script (ou 'TODOS') antes de executar.")
             return
-        self.clipboard_clear()
-        self.clipboard_append(texto)
-        self._status("SQL copiado para a área de transferência.")
-
-    def _copiar_tudo(self):
-        self._copiar_texto(self.sql_tabs.get_full_script())
-
-    def _salvar_arquivo(self):
-        script = self.sql_tabs.get_full_script()
-        if not script.strip():
-            messagebox.showinfo("Salvar SQL", "Não há SQL gerado para salvar. Clique em 'Gerar scripts' primeiro.")
+        if not self._validar_dados():
             return
-        nome_sugerido = f"PlanoContas_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
+
+        if not messagebox.askyesno(
+            "Executar no banco",
+            f"Isto vai executar {len(chaves)} script(s) diretamente na base ativa "
+            f"'{self.session.base_ativa}'.\n\nEsta ação grava direto no banco do cliente "
+            "e não é reversível automaticamente. Deseja continuar?",
+            icon="warning",
+        ):
+            return
+
+        try:
+            settings = self.config_panel.get_settings()
+            resultados = dict(zip(PROCESS_KEYS, sql_generator.generate_all(self.accounts, settings, self.reference)))
+            settings_service.save_last_settings(settings, self.ultimas_config.get("ultimo_diretorio", ""))
+
+            cursor = self.session.connection.cursor()
+            executados = []
+            for chave in chaves:
+                cursor.execute(resultados[chave].sql)
+                executados.append(PROCESS_LABELS[chave])
+            self._status(f"Executado no banco '{self.session.base_ativa}': {', '.join(executados)}.")
+            messagebox.showinfo("Executar no banco", f"Executado com sucesso na base '{self.session.base_ativa}'.")
+        except Exception as exc:
+            messagebox.showerror("Erro ao executar no banco", f"Falha ao executar no banco:\n{exc}")
+            traceback.print_exc()
+            self._status("Falha ao executar no banco.")
+
+    # ------------------------------------------------------------------
+    # Excluir contas (consulta + exclusão do que já existe no banco)
+    # ------------------------------------------------------------------
+    def _consultar_exclusoes(self):
+        if not self.accounts:
+            messagebox.showwarning(
+                "Excluir contas",
+                "Nenhuma planilha carregada. Selecione e carregue uma planilha na aba 'Criar contas' primeiro.",
+            )
+            return
+        try:
+            settings = self.config_panel.get_settings()
+            consultas = delete_service.montar_consultas(self.accounts, settings)
+            resultados = delete_service.executar_consultas(self.session.connection, consultas)
+            self.excluir_contas_panel.mostrar_resultados(resultados)
+            total = sum(len(r.linhas) for r in resultados)
+            self._status(f"Consulta de exclusão concluída: {total} registro(s) encontrado(s).")
+        except Exception as exc:
+            messagebox.showerror("Excluir contas", f"Falha ao consultar o banco:\n{exc}")
+            traceback.print_exc()
+            self._status("Falha ao consultar contas para exclusão.")
+
+    def _excluir_contas_selecionadas(self, itens: list):
+        # itens: [(titulo, tabela, colunas_chave, linha_dict), ...]
+        contagem = {}
+        for titulo, _, _, _ in itens:
+            contagem[titulo] = contagem.get(titulo, 0) + 1
+        resumo = "\n".join(f"- {titulo}: {qtd}" for titulo, qtd in contagem.items())
+
+        if not messagebox.askyesno(
+            "Excluir contas",
+            f"Isto vai excluir {len(itens)} registro(s) diretamente na base ativa "
+            f"'{self.session.base_ativa}':\n\n{resumo}\n\n"
+            "Esta ação grava direto no banco do cliente e não é reversível automaticamente. Deseja continuar?",
+            icon="warning",
+        ):
+            return
+
+        try:
+            itens_delete = [(tabela, colunas_chave, linha) for _, tabela, colunas_chave, linha in itens]
+            delete_service.executar_exclusoes(self.session.connection, itens_delete)
+            messagebox.showinfo("Excluir contas", f"{len(itens)} registro(s) excluído(s) com sucesso.")
+            self._status(f"{len(itens)} registro(s) excluído(s) na base '{self.session.base_ativa}'.")
+            self._consultar_exclusoes()
+        except Exception as exc:
+            messagebox.showerror("Excluir contas", f"Falha ao excluir os registros selecionados:\n{exc}")
+            traceback.print_exc()
+            self._status("Falha ao excluir registros.")
+
+    def _salvar_um_script(self, chave: str, resultado):
         caminho = filedialog.asksaveasfilename(
             title="Salvar script SQL",
-            initialfile=nome_sugerido,
+            initialfile=NOMES_ARQUIVO[chave],
             defaultextension=".sql",
             filetypes=[("Script SQL", "*.sql")],
         )
         if not caminho:
+            self._status("Geração cancelada.")
             return
         with open(caminho, "w", encoding="utf-8-sig", newline="") as f:
-            f.write(script)
+            f.write(resultado.sql)
         self._status(f"Script salvo em: {caminho}")
 
-    def _salvar_por_processo(self):
-        if not self.accounts:
-            messagebox.showinfo("Salvar por processo", "Gere os scripts antes de salvar.")
-            return
-        script = self.sql_tabs.get_full_script()
-        if not script.strip():
-            messagebox.showinfo("Salvar por processo", "Não há SQL gerado para salvar. Clique em 'Gerar scripts' primeiro.")
-            return
+    def _salvar_varios_scripts(self, chaves: list, resultados: dict):
         pasta = filedialog.askdirectory(title="Selecionar pasta para salvar os scripts")
         if not pasta:
+            self._status("Geração cancelada.")
             return
-        settings = self.config_panel.get_settings()
-        resultados = sql_generator.generate_all(self.accounts, settings, self.reference)
-        nomes_arquivo = [
-            "01_Contas.sql", "02_GrupoPortal.sql", "03_GrupoContabil.sql", "04_InterfaceContas.sql",
-            "05_InterfaceHistorico.sql", "06_InterfaceArq.sql", "07_InterfaceComum.sql", "08_InterfaceFormaPgto.sql",
-        ]
-        for nome_arquivo, resultado in zip(nomes_arquivo, resultados):
-            caminho = os.path.join(pasta, nome_arquivo)
+        for chave in chaves:
+            caminho = os.path.join(pasta, NOMES_ARQUIVO[chave])
             with open(caminho, "w", encoding="utf-8-sig", newline="") as f:
-                f.write(resultado.sql)
-        self._status(f"Scripts individuais salvos em: {pasta}")
+                f.write(resultados[chave].sql)
+        self._status(f"{len(chaves)} script(s) salvo(s) em: {pasta}")
 
-    def _restaurar_padroes(self):
-        padroes = settings_service.restore_defaults()
-        self.config_panel.set_from_dict(padroes)
-        self._status("Configurações restauradas para o padrão.")
+    def _salvar_arquivo_unico(self, chaves: list, resultados: dict):
+        caminho = filedialog.asksaveasfilename(
+            title="Salvar scripts combinados",
+            initialfile="Scripts_Combinados.sql",
+            defaultextension=".sql",
+            filetypes=[("Script SQL", "*.sql")],
+        )
+        if not caminho:
+            self._status("Geração cancelada.")
+            return
+
+        blocos = []
+        for chave in chaves:
+            cabecalho = f"-- ===== {NOMES_ARQUIVO[chave]} ({PROCESS_LABELS[chave]}) ====="
+            blocos.append(f"{cabecalho}\n{resultados[chave].sql}")
+        conteudo = "\n\nGO\n\n".join(blocos)
+
+        with open(caminho, "w", encoding="utf-8-sig", newline="") as f:
+            f.write(conteudo)
+        self._status(f"{len(chaves)} script(s) combinado(s) em: {caminho}")
+
+    # ------------------------------------------------------------------
+    # Criação de base (thread de trabalho + fila thread-safe -> GUI)
+    # ------------------------------------------------------------------
+    def _on_provisionar_base(self, cfg, prod_cs, dev_cs):
+        self.criar_base_panel.set_busy(True)
+        self._progress_queue = queue.Queue()
+        thread = threading.Thread(target=self._worker_provisionar, args=(cfg, prod_cs, dev_cs), daemon=True)
+        thread.start()
+        self.after(100, self._poll_progress_queue)
+
+    def _worker_provisionar(self, cfg, prod_cs, dev_cs):
+        resultado = criar_base_service.executar_criacao_base(
+            prod_cs, dev_cs, cfg,
+            on_progress=self._progress_queue.put,
+        )
+        self._progress_queue.put(("__RESULTADO__", resultado))
+
+    def _poll_progress_queue(self):
+        try:
+            while True:
+                item = self._progress_queue.get_nowait()
+                if isinstance(item, tuple) and item[0] == "__RESULTADO__":
+                    self._finalizar_provisionamento(item[1])
+                    return
+                self.criar_base_panel.append_log(item)
+        except queue.Empty:
+            pass
+        self.after(150, self._poll_progress_queue)
+
+    def _finalizar_provisionamento(self, resultado):
+        self.criar_base_panel.set_busy(False)
+        if resultado.sucesso:
+            messagebox.showinfo("Criação de base", "Base provisionada com sucesso.")
+            self._status("Base provisionada com sucesso.")
+        else:
+            messagebox.showerror(
+                "Criação de base",
+                f"Falha na etapa '{resultado.passo_falho}':\n{resultado.erro}\n\n"
+                f"Etapas concluídas antes da falha: {', '.join(resultado.passos_concluidos) or '(nenhuma)'}",
+            )
+            self._status(f"Falha na criação de base (etapa '{resultado.passo_falho}').")
 
     def _status(self, texto: str):
         self.status_var.set(texto)

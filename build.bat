@@ -36,6 +36,7 @@ if errorlevel 1 (
 echo Gerando executavel com PyInstaller...
 pyinstaller --noconfirm --clean --onefile --windowed ^
     --name GeradorPlanoContas ^
+    --add-data "resources\sql_templates;resources\sql_templates" ^
     app.py
 if errorlevel 1 (
     echo Falha ao gerar o executavel.

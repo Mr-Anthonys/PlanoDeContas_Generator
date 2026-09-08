@@ -1,7 +1,8 @@
 {
   "_comentario": "Fonte única de verdade para valores de referência (TipoArq, InterfaceComum, InterfaceFormaPgto) e para as últimas configurações usadas pelo aplicativo. Não duplique estes valores em outro arquivo.",
   "tipos_conta": [
-    "Recebimento"
+    "Recebimento",
+    "Pagamento"
   ],
   "opcoes_historico": [
     "Qtd",
@@ -156,14 +157,20 @@
     }
   },
   "ultimas_configuracoes": {
-    "ultimo_diretorio": "",
+    "ultimo_diretorio": "C:/Users/Usuario/Documents/Trabalho/INTERFACES/Interfaces/Inr/DOING/SP Jau",
     "ultimo_tipo_arq": "Emolumentos",
     "ultimo_tipo_conta": "Recebimento",
-    "ultimo_regime": "Titular",
+    "ultimo_regime": "Interino",
     "ultima_qtd_marcadores": 1,
-    "ultimo_historico1": "Qtd",
+    "ultimo_historico1": "Hist",
     "ultimo_historico2": "",
-    "ultimo_interface_comum": "Emolumentos",
-    "ultimo_interface_forma_pgto": "Emolumentos"
+    "ultimo_historico3": "",
+    "ultimo_interface_comum": "Emolumentos_",
+    "ultimo_interface_forma_pgto": "Emolumentos_RI"
+  },
+  "ultima_conexao": {
+    "ultimo_servidor": "18.229.78.5",
+    "ultimo_usuario": "user_inr",
+    "ultimo_cliente_parametros": "INR - Gestor_SP_SaoJoseDoRioPardo_2TNP"
   }
 }

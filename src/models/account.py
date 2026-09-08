@@ -38,6 +38,7 @@ class GenerationSettings:
     historico_texto: str = ""
     historico1: str = ""
     historico2: str = ""
+    historico3: str = ""
 
     @property
     def l_irrf(self) -> int:

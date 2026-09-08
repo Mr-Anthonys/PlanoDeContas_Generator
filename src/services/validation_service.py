@@ -36,22 +36,25 @@ def build_accounts(raw_rows) -> list:
 
 
 def apply_duplicate_checks(accounts: list) -> None:
-    """Marca duplicidade de Nome (comparação sem diferenciar maiúsculas/minúsculas,
-    pois o SQL Server usa collation case-insensitive por padrão) e de ContaOrigem."""
-    por_nome = {}
+    """Marca duplicidade de Nome+Grupo (comparação sem diferenciar maiúsculas/minúsculas,
+    pois o SQL Server usa collation case-insensitive por padrão) e de ContaOrigem.
+
+    Mesmo nome em grupos diferentes não é duplicidade: cada grupo tem sua
+    própria conta, então essas linhas geram normalmente."""
+    por_nome_grupo = {}
     por_codigo = {}
     for account in accounts:
-        if account.nome:
-            chave = account.nome.strip().lower()
-            por_nome.setdefault(chave, []).append(account)
+        if account.nome and account.grupo:
+            chave = (account.nome.strip().lower(), account.grupo.strip().lower())
+            por_nome_grupo.setdefault(chave, []).append(account)
         if account.conta_origem:
             por_codigo.setdefault(account.conta_origem, []).append(account)
 
-    for chave, grupo in por_nome.items():
+    for chave, grupo in por_nome_grupo.items():
         if len(grupo) > 1:
             linhas = ", ".join(str(a.linha) for a in grupo)
             for account in grupo:
-                account.erros.append(f"Nome duplicado (linhas {linhas})")
+                account.erros.append(f"Nome duplicado no mesmo grupo (linhas {linhas})")
 
     for codigo, grupo in por_codigo.items():
         if len(grupo) > 1:
@@ -81,18 +84,14 @@ def validate_settings(settings, reference) -> list:
     if not settings.tipo_conta or not settings.tipo_conta.strip():
         erros.append("Tipo de Conta é obrigatório.")
 
-    if not settings.tipo_arq or settings.tipo_arq not in reference.tipos_arquivo:
-        erros.append(
-            f"TipoArq '{settings.tipo_arq}' inválido. Opções disponíveis: {', '.join(reference.tipos_arquivo)}."
-        )
+    if not settings.tipo_arq or not settings.tipo_arq.strip():
+        erros.append("TipoArq é obrigatório.")
 
-    if settings.interface_comum not in reference.tipos_arquivo:
-        erros.append(f"InterfaceComum '{settings.interface_comum}' não encontrada na configuração de referência.")
+    if not settings.interface_comum or not settings.interface_comum.strip():
+        erros.append("InterfaceComum é obrigatório.")
 
-    if settings.interface_forma_pgto not in reference.tipos_arquivo:
-        erros.append(
-            f"InterfaceFormaPgto '{settings.interface_forma_pgto}' não encontrada na configuração de referência."
-        )
+    if not settings.interface_forma_pgto or not settings.interface_forma_pgto.strip():
+        erros.append("InterfaceFormaPgto é obrigatório.")
 
     erros.extend(validate_historico(settings))
 
@@ -107,8 +106,8 @@ def validate_historico(settings) -> list:
     texto = settings.historico_texto or ""
     qtd_arrobas = texto.count(MARCADOR)
 
-    if qtd_marcadores not in (1, 2):
-        erros.append("Quantidade de marcadores deve ser 1 ou 2.")
+    if qtd_marcadores not in (1, 2, 3):
+        erros.append("Quantidade de marcadores deve ser 1, 2 ou 3.")
         return erros
 
     if not texto.strip():
@@ -122,11 +121,17 @@ def validate_historico(settings) -> list:
     if qtd_marcadores >= 1 and not (settings.historico1 or "").strip():
         erros.append("Historico1 é obrigatório quando há pelo menos um marcador '@'.")
 
-    if qtd_marcadores == 2 and not (settings.historico2 or "").strip():
-        erros.append("Historico2 é obrigatório quando há dois marcadores '@'.")
+    if qtd_marcadores >= 2 and not (settings.historico2 or "").strip():
+        erros.append("Historico2 é obrigatório quando há dois ou mais marcadores '@'.")
 
-    if qtd_marcadores == 1 and (settings.historico2 or "").strip():
-        erros.append("Historico2 deve permanecer vazio quando há apenas um marcador '@'.")
+    if qtd_marcadores < 2 and (settings.historico2 or "").strip():
+        erros.append("Historico2 deve permanecer vazio quando há menos de dois marcadores '@'.")
+
+    if qtd_marcadores >= 3 and not (settings.historico3 or "").strip():
+        erros.append("Historico3 é obrigatório quando há três marcadores '@'.")
+
+    if qtd_marcadores < 3 and (settings.historico3 or "").strip():
+        erros.append("Historico3 deve permanecer vazio quando há menos de três marcadores '@'.")
 
     return erros
 

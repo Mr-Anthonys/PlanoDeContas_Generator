@@ -190,7 +190,8 @@ def generate_interface_historico(accounts, settings) -> SqlProcessResult:
         valores_dinamicos = ", ".join([
             sql_string(a.conta_origem),
             sql_string(settings.historico1),
-            sql_string(settings.historico2 if settings.qtd_marcadores == 2 else ""),
+            sql_string(settings.historico2 if settings.qtd_marcadores >= 2 else ""),
+            sql_string(settings.historico3 if settings.qtd_marcadores >= 3 else ""),
             sql_string(settings.tipo_arq),
         ])
         valores = ", ".join([valores_dinamicos, valores_fixos_numericos, valores_fixos_texto])
@@ -207,8 +208,8 @@ def generate_interface_historico(accounts, settings) -> SqlProcessResult:
     return SqlProcessResult(
         "5. InterfaceHistorico",
         "Define, para cada conta, as colunas do arquivo de origem que substituirão os marcadores '@' de Contas.Histórico "
-        "(Historico1 para o primeiro '@', Historico2 para o segundo, quando existir). Os demais 38 campos da tabela "
-        "permanecem com o valor fixo observado no processo manual atual (0 ou vazio).",
+        "(Historico1 para o primeiro '@', Historico2 para o segundo, Historico3 para o terceiro, quando existirem). "
+        "Os demais 37 campos da tabela permanecem com o valor fixo observado no processo manual atual (0 ou vazio).",
         sql,
         len(accounts),
     )
@@ -222,8 +223,11 @@ def generate_interface_arq(settings, reference) -> SqlProcessResult:
     colunas = ", ".join(f"[{c}]" for c in C.COLUNAS_INTERFACE_ARQ)
     valores = []
     for coluna in C.COLUNAS_INTERFACE_ARQ:
-        chave = C.CAMPOS_INTERFACE_ARQ_CONFIG[coluna]
-        valor = dados[chave]
+        if coluna == "NomeTipo":
+            valor = settings.tipo_arq
+        else:
+            chave = C.CAMPOS_INTERFACE_ARQ_CONFIG[coluna]
+            valor = dados[chave]
         if coluna in C.INTERFACE_ARQ_COLUNAS_TEXTO:
             valores.append(sql_string(valor))
         else:

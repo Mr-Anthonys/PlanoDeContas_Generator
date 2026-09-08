@@ -18,6 +18,38 @@ else:
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
+
+def resource_path(*parts) -> str:
+    """Caminho para recursos somente-leitura empacotados pelo PyInstaller
+    (sys._MEIPASS quando congelado). Diferente de BASE_DIR: BASE_DIR é a
+    pasta do .exe, editável pelo usuário (config.json); resource_path() é a
+    pasta temporária de extração, read-only, para arquivos adicionados via
+    --add-data (ex.: os templates .sql de Criação de Base)."""
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, *parts)
+
+
+SQL_TEMPLATES_DIR = resource_path("resources", "sql_templates", "criar_base")
+GESTOR_DB_PREFIX = "Gestor_"
+
+# ---------------------------------------------------------------------------
+# Banco central de parâmetros (Gestor_Parametros / Parametros_Clientes)
+#
+# Mesmo fluxo usado pelo Gestor Financeiro VB6 (modBancoDeParametros.bas):
+# cada máquina tem uma variável de ambiente GESTOR_PARAM apontando para o
+# servidor SQL do banco central; a conexão a esse banco usa sempre o mesmo
+# login fixo (não é por usuário); a partir dele lista-se Parametros_Clientes
+# para obter servidor/base/usuário/senha de cada cliente.
+# ---------------------------------------------------------------------------
+GESTOR_PARAM_ENV_VAR = "GESTOR_PARAM"
+GESTOR_PARAMETROS_DATABASE = "Gestor_Parametros"
+GESTOR_PARAMETROS_LOGIN = "Gestor_Parametros_Login"
+GESTOR_PARAMETROS_SENHA = "OTqzUdjX8YNiXh71Rzv/gXx9q6o6OP3uRGsaCzJ5l2A="
+TABELA_PARAMETROS_CLIENTES = "Parametros_Clientes"
+
 REGIME_INTERINO = "Interino"
 REGIME_TITULAR = "Titular"
 REGIMES = [REGIME_INTERINO, REGIME_TITULAR]
@@ -68,9 +100,10 @@ COLUNAS_INTERFACE_CONTAS = ["ContaSGF", "ContaOrigem", "TipoArq"]
 # ---------------------------------------------------------------------------
 TABELA_INTERFACE_HISTORICO = "[dbo].[InterfaceHistorico]"
 
-# As 4 colunas dinâmicas (variam por conta) + as 38 colunas fixas confirmadas
-# na planilha real (sempre 0 ou '' no processo manual atual).
-COLUNAS_INTERFACE_HISTORICO_DINAMICAS = ["ContaOrigem", "Historico1", "Historico2", "TipoArq"]
+# As 5 colunas dinâmicas (variam por conta) + as 37 colunas fixas confirmadas
+# na planilha real (sempre 0 ou '' no processo manual atual). Historico3 é
+# dinâmica (e não fixa) para suportar o terceiro marcador '@' no histórico.
+COLUNAS_INTERFACE_HISTORICO_DINAMICAS = ["ContaOrigem", "Historico1", "Historico2", "Historico3", "TipoArq"]
 
 COLUNAS_INTERFACE_HISTORICO_FIXAS_NUMERICAS = [
     "HistIni1", "HistTam1", "HistFim1",
@@ -84,7 +117,7 @@ COLUNAS_INTERFACE_HISTORICO_FIXAS_NUMERICAS = [
 ]
 
 COLUNAS_INTERFACE_HISTORICO_FIXAS_TEXTO = [
-    "Precedente1", "Precedente2", "Precedente3", "Historico3",
+    "Precedente1", "Precedente2", "Precedente3",
     "Precedente4", "Historico4", "Precedente5", "Historico5",
     "Precedente6", "Historico6", "Precedente7", "Historico7",
     "Precedente8", "Historico8",
