@@ -145,8 +145,10 @@ def test_falha_de_conexao_reporta_erro(monkeypatch):
     assert resultado.passos_concluidos == []
 
 
-def test_pula_dados_quando_servidores_sao_diferentes(monkeypatch):
-    _patch_connect(monkeypatch)
+def test_copia_dados_linha_a_linha_quando_servidores_sao_diferentes(monkeypatch):
+    cursor_modelo = FakeCursor(rows=[("valor1", "valor2")])
+    cursor_destino = FakeCursor()
+    _patch_connect(monkeypatch, {"prod-host": cursor_modelo, "outro-host": cursor_destino})
     eventos = []
     plano = _plano(
         destino_cs=DESTINO_OUTRO_SERVIDOR_CS,
@@ -156,24 +158,52 @@ def test_pula_dados_quando_servidores_sao_diferentes(monkeypatch):
     resultado = criar_base_service.executar_criacao_base(plano, eventos.append)
 
     assert resultado.sucesso is True
-    assert "dados" not in resultado.passos_concluidos
-    assert any(e.kind == "step_skipped" and e.step_name == "dados" for e in eventos)
+    assert "dados" in resultado.passos_concluidos
+    assert any(e.kind == "step_done" and e.step_name == "dados" for e in eventos)
+    # SELECT roda no cursor do servidor modelo, totalmente qualificado.
+    assert any("FROM [Gestor_SP_Modelo].dbo.[Contas]" in sql for sql in cursor_modelo.executed)
+    # INSERT roda no cursor do servidor de destino, sem qualificação de base
+    # (já em USE [Gestor_SP_Teste], feito explicitamente antes da cópia).
+    assert any(sql.startswith("USE [Gestor_SP_Teste]") for sql in cursor_destino.executed)
+    assert any(sql.startswith("INSERT INTO [Contas]") for sql, _ in cursor_destino.executed_many)
+    # As 4 tabelas transacionais continuam sendo zeradas antes da cópia.
+    assert any(sql == "DELETE FROM [Resumo];" for sql in cursor_destino.executed)
 
 
-def test_pula_tabelas_extras_quando_servidores_sao_diferentes(monkeypatch):
-    _patch_connect(monkeypatch)
-    eventos = []
+def test_copia_tabelas_extras_linha_a_linha_quando_servidores_sao_diferentes(monkeypatch):
+    cursor_modelo = FakeCursor(rows=[("1", "Banco Teste")])
+    cursor_destino = FakeCursor()
+    _patch_connect(monkeypatch, {"prod-host": cursor_modelo, "outro-host": cursor_destino})
     plano = _plano(
         destino_cs=DESTINO_OUTRO_SERVIDOR_CS,
         tabelas_extras=[TabelaExtra("Bancos", ["Codigo", "Nome"])],
         parametros_alvos=[AlvoParametros("destino", "servidor de destino", DESTINO_OUTRO_SERVIDOR_CS)],
     )
 
-    resultado = criar_base_service.executar_criacao_base(plano, eventos.append)
+    resultado = criar_base_service.executar_criacao_base(plano, lambda e: None)
 
     assert resultado.sucesso is True
-    assert "tabelas_extras" not in resultado.passos_concluidos
-    assert any(e.kind == "step_skipped" and e.step_name == "tabelas_extras" for e in eventos)
+    assert "tabelas_extras" in resultado.passos_concluidos
+    assert any("FROM [Gestor_SP_Modelo].dbo.[Bancos]" in sql for sql in cursor_modelo.executed)
+    assert any(sql.startswith("INSERT INTO [Bancos]") for sql, _ in cursor_destino.executed_many)
+
+
+def test_falha_na_copia_cross_server_reporta_passo_dados(monkeypatch):
+    cursor_modelo = FakeCursor(fail_on_substring="[GrupoContábil]")
+    cursor_destino = FakeCursor()
+    _patch_connect(monkeypatch, {"prod-host": cursor_modelo, "outro-host": cursor_destino})
+    eventos = []
+    plano = _plano(
+        destino_cs=DESTINO_OUTRO_SERVIDOR_CS,
+        parametros_alvos=[AlvoParametros("destino", "servidor de destino", DESTINO_OUTRO_SERVIDOR_CS)],
+    )
+
+    resultado = criar_base_service.executar_criacao_base(plano, eventos.append)
+
+    assert resultado.sucesso is False
+    assert resultado.passo_falho == "dados"
+    assert "dados" not in resultado.passos_concluidos
+    assert any(e.kind == "step_error" and e.step_name == "dados" for e in eventos)
 
 
 def test_copia_tabelas_extras_quando_mesmo_servidor(monkeypatch):

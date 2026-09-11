@@ -79,7 +79,6 @@ CONTAS_PADRAO = {
     "l_contabil": 0,
     "l_dinheiro": 0,
     "l_particular": 0,
-    "l_previo": 2,
     "l_portal": 1,
     "pdf": 0,
     "ativa": 1,

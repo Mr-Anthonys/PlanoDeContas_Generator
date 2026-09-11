@@ -12,9 +12,11 @@ Diferenças deliberadas em relação ao CriaBase original:
 - "base modelo" é obrigatória aqui (lá era opcional).
 - Para no primeiro erro (o CriaBase original só loga e segue em frente).
 - Servidor da base modelo e servidor de destino podem ser diferentes (o
-  CriaBase original exigia sempre o mesmo servidor) — quando diferentes, a
-  cópia de dados (fixa e as tabelas extras) é PULADA com um aviso, já que
-  depende de referência cross-database sem linked server.
+  CriaBase original exigia sempre o mesmo servidor). Quando são o mesmo, a
+  cópia de dados usa INSERT...SELECT cross-database direto no servidor
+  (rápido). Quando são diferentes, a cópia é feita linha a linha pela
+  aplicação (lê da conexão do modelo, grava na conexão de destino) — mais
+  lenta, mas não depende de linked server.
 """
 
 import os
@@ -22,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from src.services import db_connection_service as dbc
+from src.services import schema_service
 from src.services.schema_service import montar_copia_tabela
 from src.services.sql_batch_executor import SqlStepError, run_sql_script
 from src.utils.constants import GESTOR_PARAMETROS_DATABASE, SQL_TEMPLATES_DIR
@@ -132,10 +135,7 @@ _PASSOS_BASE = [
     ("cartorio_id", "05_cartorio_id.sql", "Gravando ID do cartório"),
 ]
 
-MOTIVO_SERVIDORES_DIFERENTES = (
-    "Pulado: o servidor da base modelo é diferente do servidor de destino "
-    "(cópia de dados exige as duas bases no mesmo servidor, sem linked server)."
-)
+CAMINHO_03_DADOS = os.path.join(SQL_TEMPLATES_DIR, "03_dados.sql")
 
 
 def mesmo_servidor(a, b) -> bool:
@@ -168,6 +168,46 @@ def montar_insert_parametros_cliente(cfg: ParametrosClienteConfig) -> str:
     return f"INSERT INTO [dbo].[Parametros_Clientes] ({colunas_sql})\nVALUES ({valores_sql});"
 
 
+def _copiar_linhas(cursor_modelo, cursor_destino, base_modelo: str, tabela_origem: str, tabela_destino: str, colunas: list):
+    colunas_sql = ", ".join(quote_identifier(c) for c in colunas)
+    cursor_modelo.execute(
+        f"SELECT {colunas_sql} FROM {quote_identifier(base_modelo)}.dbo.{quote_identifier(tabela_origem)};"
+    )
+    linhas = [tuple(linha) for linha in cursor_modelo.fetchall()]
+    if not linhas:
+        return
+    placeholders_sql = ", ".join("?" for _ in colunas)
+    insert_sql = f"INSERT INTO {quote_identifier(tabela_destino)} ({colunas_sql}) VALUES ({placeholders_sql})"
+    cursor_destino.executemany(insert_sql, linhas)
+
+
+def _copiar_dados_cross_server(conn_modelo, cursor_destino, cfg: NovaBaseConfig):
+    """Equivalente a rodar 03_dados.sql, mas linha a linha via Python — usado
+    quando o servidor da base modelo é diferente do servidor de destino
+    (sem linked server, então um único INSERT...SELECT cross-database não
+    funciona). O plano de cópia (tabelas/colunas exatas, tabelas zeradas por
+    DELETE) vem de `schema_service.analisar_copia_fixa_de_dados`, extraído
+    do próprio 03_dados.sql — mesma fonte usada no caminho de mesmo servidor."""
+    cursor_destino.execute(f"USE {quote_identifier(cfg.base_nova)};")
+    plano = schema_service.analisar_copia_fixa_de_dados(CAMINHO_03_DADOS)
+    for tabela in plano.tabelas_para_limpar:
+        cursor_destino.execute(f"DELETE FROM {quote_identifier(tabela)};")
+
+    cursor_modelo = conn_modelo.cursor()
+    for copia in plano.tabelas:
+        colunas = copia.colunas
+        if colunas is None:
+            colunas = schema_service.listar_colunas(conn_modelo, cfg.base_modelo, copia.tabela_origem)
+        _copiar_linhas(cursor_modelo, cursor_destino, cfg.base_modelo, copia.tabela_origem, copia.tabela_destino, colunas)
+
+
+def _copiar_tabelas_extras_cross_server(conn_modelo, cursor_destino, cfg: NovaBaseConfig, tabelas_extras: list):
+    cursor_destino.execute(f"USE {quote_identifier(cfg.base_nova)};")
+    cursor_modelo = conn_modelo.cursor()
+    for extra in tabelas_extras:
+        _copiar_linhas(cursor_modelo, cursor_destino, cfg.base_modelo, extra.tabela, extra.tabela, extra.colunas)
+
+
 def executar_criacao_base(
     plano: PlanoProvisionamento, on_progress: Callable[[ProgressEvent], None],
 ) -> CriarBaseResultado:
@@ -177,7 +217,7 @@ def executar_criacao_base(
     passos_ok = []
     conexoes = {}  # servidor (lower, strip) -> connection já aberta, reaproveitada quando repete
     cfg = plano.cfg
-    dados_disponiveis = mesmo_servidor(plano.modelo_cs, plano.destino_cs)
+    copia_via_sql_direto = mesmo_servidor(plano.modelo_cs, plano.destino_cs)
 
     def _conectar(cs):
         chave = cs.servidor.strip().lower()
@@ -185,40 +225,52 @@ def executar_criacao_base(
             conexoes[chave] = dbc.connect(cs, autocommit=True)
         return conexoes[chave]
 
+    def _rodar_ou_relatar(chave, func):
+        try:
+            func()
+        except Exception as exc:
+            raise SqlStepError(chave, 0, 0, exc) from exc
+
     try:
         conn_destino = _conectar(plano.destino_cs)
         cursor_destino = conn_destino.cursor()
+        conn_modelo = _conectar(plano.modelo_cs)
         comuns = _placeholders_comuns(cfg)
 
         for chave, arquivo, titulo in _PASSOS_BASE:
-            if chave == "dados" and not dados_disponiveis:
-                on_progress(ProgressEvent("step_skipped", chave, MOTIVO_SERVIDORES_DIFERENTES))
-                continue
-
-            on_progress(ProgressEvent("step_start", chave, titulo))
-            caminho = os.path.join(SQL_TEMPLATES_DIR, arquivo)
-            run_sql_script(
-                cursor_destino, caminho, comuns, chave,
-                on_batch=lambda p: on_progress(
-                    ProgressEvent("batch", p.step_name, p.sql_preview, p.batch_index, p.total_batches)
-                ),
+            titulo_efetivo = titulo if chave != "dados" or copia_via_sql_direto else (
+                f"{titulo} (servidores diferentes: copiando linha a linha via aplicação)"
             )
+            on_progress(ProgressEvent("step_start", chave, titulo_efetivo))
+            if chave == "dados" and not copia_via_sql_direto:
+                _rodar_ou_relatar(chave, lambda: _copiar_dados_cross_server(conn_modelo, cursor_destino, cfg))
+            else:
+                caminho = os.path.join(SQL_TEMPLATES_DIR, arquivo)
+                run_sql_script(
+                    cursor_destino, caminho, comuns, chave,
+                    on_batch=lambda p: on_progress(
+                        ProgressEvent("batch", p.step_name, p.sql_preview, p.batch_index, p.total_batches)
+                    ),
+                )
             passos_ok.append(chave)
-            on_progress(ProgressEvent("step_done", chave, titulo))
+            on_progress(ProgressEvent("step_done", chave, titulo_efetivo))
 
         if plano.tabelas_extras:
-            if not dados_disponiveis:
-                on_progress(ProgressEvent("step_skipped", "tabelas_extras", MOTIVO_SERVIDORES_DIFERENTES))
-            else:
-                on_progress(ProgressEvent(
-                    "step_start", "tabelas_extras",
-                    f"Copiando {len(plano.tabelas_extras)} tabela(s) adicional(is) selecionada(s)",
-                ))
+            on_progress(ProgressEvent(
+                "step_start", "tabelas_extras",
+                f"Copiando {len(plano.tabelas_extras)} tabela(s) adicional(is) selecionada(s)",
+            ))
+            if copia_via_sql_direto:
                 for extra in plano.tabelas_extras:
                     sql = montar_copia_tabela(cfg.base_nova, cfg.base_modelo, extra.tabela, extra.colunas)
                     cursor_destino.execute(sql)
-                passos_ok.append("tabelas_extras")
-                on_progress(ProgressEvent("step_done", "tabelas_extras", "Tabelas adicionais copiadas"))
+            else:
+                _rodar_ou_relatar(
+                    "tabelas_extras",
+                    lambda: _copiar_tabelas_extras_cross_server(conn_modelo, cursor_destino, cfg, plano.tabelas_extras),
+                )
+            passos_ok.append("tabelas_extras")
+            on_progress(ProgressEvent("step_done", "tabelas_extras", "Tabelas adicionais copiadas"))
 
         if cfg.cart_interino:
             on_progress(ProgressEvent("step_start", "interino", "Ajustando IRRF para responsável interino"))

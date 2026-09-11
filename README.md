@@ -165,7 +165,7 @@ Um link no rodapé da tela de login alterna entre os dois modos a qualquer momen
 | `src/gui/connection_dialog.py` | Tela de login (modo automático + manual). |
 | `src/models/session.py` | `SessionContext` — conexão viva + base ativa, repassado à janela principal. |
 
-**Observação:** a aba "Criação de Base" **não** reaproveita as credenciais da sessão logada — tem seus próprios campos de "Servidor de produção" (pré-preenchidos com os dados da sessão atual como sugestão, mas editáveis). Isso é proposital: cada cliente em `Parametros_Clientes` pode estar hospedado em um servidor diferente, mas a base modelo escolhida precisa obrigatoriamente estar no **mesmo servidor** onde a base nova será criada (a cópia de dados em `03_dados.sql` referencia `[BaseModelo].dbo.Tabela` diretamente, sem linked server) — então "servidor onde eu logo para trabalhar" e "servidor onde eu provisiono uma base nova" são duas escolhas independentes, não a mesma coisa.
+**Observação:** a aba "Criação de Base" **não** reaproveita as credenciais da sessão logada — tem seus próprios campos de "Servidor de produção" (pré-preenchidos com os dados da sessão atual como sugestão, mas editáveis). A base modelo pode estar num servidor diferente do servidor onde a base nova será criada: quando são o mesmo servidor, a cópia de dados usa `03_dados.sql` direto (`[BaseModelo].dbo.Tabela`, rápido); quando são diferentes, `criar_base_service.py` copia linha a linha via Python (lê da conexão do modelo, grava na de destino) — mais lento, mas sem depender de linked server. Então "servidor onde eu logo para trabalhar" e "servidor onde eu provisiono uma base nova" são duas escolhas independentes, não a mesma coisa.
 
 ## Como executar os testes
 

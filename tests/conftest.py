@@ -32,6 +32,7 @@ class FakeCursor:
 
     def __init__(self, fail_on_call=None, fail_on_substring=None, columns=None, rows=None):
         self.executed = []
+        self.executed_many = []  # [(sql, [params, ...]), ...] — chamadas via executemany
         self.fail_on_call = fail_on_call
         self.fail_on_substring = fail_on_substring
         self._call_count = 0
@@ -40,13 +41,20 @@ class FakeCursor:
         self.description = [(coluna,) for coluna in columns] if columns else []
         self._rows = rows if rows is not None else []
 
-    def execute(self, sql, *params):
+    def _registrar_e_verificar_falha(self, sql):
         self._call_count += 1
         self.executed.append(sql)
         if self.fail_on_call is not None and self._call_count == self.fail_on_call:
             raise RuntimeError(f"erro simulado na chamada {self._call_count}")
         if self.fail_on_substring is not None and self.fail_on_substring in sql:
             raise RuntimeError(f"erro simulado ao encontrar: {self.fail_on_substring!r}")
+
+    def execute(self, sql, *params):
+        self._registrar_e_verificar_falha(sql)
+
+    def executemany(self, sql, seq_of_params):
+        self._registrar_e_verificar_falha(sql)
+        self.executed_many.append((sql, list(seq_of_params)))
 
     def fetchall(self):
         return self._rows

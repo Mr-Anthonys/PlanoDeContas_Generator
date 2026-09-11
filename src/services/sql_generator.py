@@ -84,7 +84,7 @@ def generate_contas(accounts, settings) -> SqlProcessResult:
             str(p["l_contabil"]),
             str(p["l_dinheiro"]),
             str(p["l_particular"]),
-            str(p["l_previo"]),
+            str(settings.l_previo),
             str(p["l_portal"]),
             sql_string(a.grupo_normalizado),
             str(settings.l_irrf),

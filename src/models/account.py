@@ -39,6 +39,7 @@ class GenerationSettings:
     historico1: str = ""
     historico2: str = ""
     historico3: str = ""
+    l_previo: int = 2
 
     @property
     def l_irrf(self) -> int:

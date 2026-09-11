@@ -22,6 +22,7 @@ DEFAULTS = {
     "ultimo_historico3": "",
     "ultimo_interface_comum": "Emolumentos",
     "ultimo_interface_forma_pgto": "Emolumentos",
+    "ultimo_l_previo": 2,
 }
 
 
@@ -63,6 +64,7 @@ def save_last_settings(settings: GenerationSettings, ultimo_diretorio: str = "",
         "ultimo_historico3": settings.historico3,
         "ultimo_interface_comum": settings.interface_comum,
         "ultimo_interface_forma_pgto": settings.interface_forma_pgto,
+        "ultimo_l_previo": settings.l_previo,
     }
     _write_config(config, caminho)
 
@@ -151,4 +153,5 @@ def settings_from_dict(dados: dict) -> GenerationSettings:
         historico1=dados.get("ultimo_historico1", ""),
         historico2=dados.get("ultimo_historico2", ""),
         historico3=dados.get("ultimo_historico3", ""),
+        l_previo=dados.get("ultimo_l_previo", 2),
     )

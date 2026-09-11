@@ -7,8 +7,7 @@ assistente de várias etapas (a quantidade de campos não cabe numa tela só):
 2. Nova base e cartório — dados da base nova e do cartório.
 3. Tabelas adicionais (opcional) — além das ~15 tabelas fixas que
    03_dados.sql já copia, permite escolher tabelas/colunas extras do banco
-   modelo pra copiar pra base nova (só funciona quando modelo e destino
-   estão no mesmo servidor).
+   modelo pra copiar pra base nova.
 4. Registro em Parametros_Clientes — os 13 campos de
    Gestor_Parametros.Parametros_Clientes, com a mesma linha registrada em
    1+ servidores escolhidos (base modelo / destino / os dois), sempre
@@ -71,7 +70,7 @@ class CriarBasePanel(ttk.Frame):
         self.session = session
         self.on_provisionar = on_provisionar or (lambda plano: None)
         self._auto_editado_manualmente = {
-            "base_nova": False, "odbc_dsn": False, "diretorio": False,
+            "odbc_dsn": False, "diretorio": False,
             "param_banco": False, "param_usuario": False, "param_senha": False,
             "param_diretorio": False, "param_odbc": False,
         }
@@ -204,9 +203,10 @@ class CriarBasePanel(ttk.Frame):
 
         ttk.Label(
             grupo_destino,
-            text="A cópia de dados da base modelo (etapas 03_dados.sql e as tabelas adicionais da etapa 3) só "
-            "funciona quando os dois servidores são o mesmo (sem linked server). Servidores diferentes ainda "
-            "criam a base e registram o cliente, só pulam a cópia de dados.",
+            text="Se os dois servidores forem o mesmo, a cópia de dados da base modelo roda direto no servidor "
+            "(rápida). Se forem diferentes, a cópia (dados fixos e tabelas adicionais da etapa 3) é feita "
+            "linha a linha pela aplicação — funciona, só que mais devagar, já que não depende de linked "
+            "server.",
             foreground="#555", wraplength=320,
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
@@ -238,8 +238,6 @@ class CriarBasePanel(ttk.Frame):
         grupo.grid(row=0, column=0, sticky="new", padx=(0, 8))
         grupo.columnconfigure(1, weight=1)
 
-        self.var_cidade = tk.StringVar(value="")
-        self.var_uf = tk.StringVar(value="")
         self.var_base_nova = tk.StringVar(value="")
         self.var_base_usuario = tk.StringVar(value="")
         self.var_base_senha = tk.StringVar(value="")
@@ -248,7 +246,6 @@ class CriarBasePanel(ttk.Frame):
         self.var_interino = tk.BooleanVar(value=False)
 
         campos = [
-            ("Cidade:", self.var_cidade), ("UF:", self.var_uf),
             ("Nome da base nova:", self.var_base_nova),
             ("Usuário da base:", self.var_base_usuario),
         ]
@@ -256,21 +253,26 @@ class CriarBasePanel(ttk.Frame):
             ttk.Label(grupo, text=rotulo).grid(row=i, column=0, sticky="w", pady=2)
             ttk.Entry(grupo, textvariable=var).grid(row=i, column=1, sticky="we", pady=2)
 
-        ttk.Label(grupo, text="Senha da base:").grid(row=4, column=0, sticky="w", pady=2)
+        ttk.Label(grupo, text="Senha da base:").grid(row=2, column=0, sticky="w", pady=2)
         senha_frame = ttk.Frame(grupo)
-        senha_frame.grid(row=4, column=1, sticky="we", pady=2)
+        senha_frame.grid(row=2, column=1, sticky="we", pady=2)
         senha_frame.columnconfigure(0, weight=1)
         ttk.Entry(senha_frame, textvariable=self.var_base_senha, show="*").grid(row=0, column=0, sticky="we")
         ttk.Button(senha_frame, text="Gerar", command=self._gerar_senha).grid(row=0, column=1, padx=(4, 0))
 
-        ttk.Label(grupo, text="DSN ODBC:").grid(row=5, column=0, sticky="w", pady=2)
-        ttk.Entry(grupo, textvariable=self.var_odbc_dsn).grid(row=5, column=1, sticky="we", pady=2)
+        ttk.Label(grupo, text="DSN ODBC:").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Entry(grupo, textvariable=self.var_odbc_dsn).grid(row=3, column=1, sticky="we", pady=2)
 
-        ttk.Label(grupo, text="Diretório de arquivos:").grid(row=6, column=0, sticky="w", pady=2)
-        ttk.Entry(grupo, textvariable=self.var_diretorio).grid(row=6, column=1, sticky="we", pady=2)
+        ttk.Label(grupo, text="Diretório de arquivos:").grid(row=4, column=0, sticky="w", pady=2)
+        ttk.Entry(grupo, textvariable=self.var_diretorio).grid(row=4, column=1, sticky="we", pady=2)
+
+        ttk.Label(
+            grupo, text="DSN ODBC e diretório são sugeridos a partir do nome da base nova (edite à vontade).",
+            foreground="#555", wraplength=280,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 2))
 
         ttk.Checkbutton(grupo, text="Responsável interino", variable=self.var_interino).grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(8, 0)
+            row=6, column=0, columnspan=2, sticky="w", pady=(8, 0)
         )
 
     def _build_dados_cartorio(self, parent):
@@ -284,6 +286,8 @@ class CriarBasePanel(ttk.Frame):
         self.var_cart_endereco = tk.StringVar(value="")
         self.var_cart_bairro = tk.StringVar(value="")
         self.var_cart_cep = tk.StringVar(value="")
+        self.var_cidade = tk.StringVar(value="")
+        self.var_uf = tk.StringVar(value="")
         self.var_cart_resp_nome = tk.StringVar(value="")
         self.var_cart_resp_cpf = tk.StringVar(value="")
         self.var_cart_inicio = tk.StringVar(value="")
@@ -296,6 +300,8 @@ class CriarBasePanel(ttk.Frame):
             ("Endereço:", self.var_cart_endereco),
             ("Bairro:", self.var_cart_bairro),
             ("CEP:", self.var_cart_cep),
+            ("Cidade:", self.var_cidade),
+            ("UF:", self.var_uf),
             ("Responsável (nome):", self.var_cart_resp_nome),
             ("Responsável (CPF):", self.var_cart_resp_cpf),
             ("Início do responsável (aaaa-mm-dd):", self.var_cart_inicio),
@@ -304,11 +310,6 @@ class CriarBasePanel(ttk.Frame):
         for i, (rotulo, var) in enumerate(campos):
             ttk.Label(grupo, text=rotulo).grid(row=i, column=0, sticky="w", pady=2)
             ttk.Entry(grupo, textvariable=var).grid(row=i, column=1, sticky="we", pady=2)
-
-        ttk.Label(
-            grupo, text="Cidade/UF do cartório vêm do quadro 'Nova base' ao lado.",
-            foreground="#555", wraplength=280,
-        ).grid(row=len(campos), column=0, columnspan=2, sticky="w", pady=(6, 0))
 
     # ------------------------------------------------------------------
     # Etapa 3: tabelas adicionais
@@ -324,8 +325,9 @@ class CriarBasePanel(ttk.Frame):
             "buscar, todas as tabelas já vêm pré-selecionadas com todas as colunas — exceto "
             f"{', '.join(TABELAS_SEM_COPIA_PADRAO)}, que ficam selecionadas mas sem coluna nenhuma marcada "
             "(ou seja, sem dado copiado: Resumo já é coberto pela cópia padrão, e as outras três são "
-            "tabelas transacionais que devem começar vazias). Desmarque/marque à vontade. Só funciona "
-            "quando o servidor da base modelo e o de destino são o mesmo (etapa 1).",
+            "tabelas transacionais que devem começar vazias). Desmarque/marque à vontade. Funciona mesmo "
+            "quando o servidor da base modelo e o de destino são diferentes (etapa 1) — nesse caso a cópia "
+            "é feita linha a linha pela aplicação, mais devagar.",
             foreground="#555", wraplength=900,
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
 
@@ -622,15 +624,12 @@ class CriarBasePanel(ttk.Frame):
             "",
         ]
         if mesmo_servidor:
-            texto_dados = "Cópia de dados: SIM (mesmo servidor) — inclui a cópia padrão (~15 tabelas fixas)"
-            if tabelas_extras:
-                texto_dados += f" + {len(tabelas_extras)} tabela(s) adicional(is) selecionada(s)"
-            linhas.append(texto_dados)
+            texto_dados = "Cópia de dados: SIM (mesmo servidor, direto no SQL) — inclui a cópia padrão (~15 tabelas fixas)"
         else:
-            linhas.append(
-                "Cópia de dados: NÃO SERÁ FEITA — o servidor da base modelo é diferente do servidor de "
-                "destino (etapa 1)."
-            )
+            texto_dados = "Cópia de dados: SIM (servidores diferentes, linha a linha pela aplicação) — inclui a cópia padrão (~15 tabelas fixas)"
+        if tabelas_extras:
+            texto_dados += f" + {len(tabelas_extras)} tabela(s) adicional(is) selecionada(s)"
+        linhas.append(texto_dados)
         linhas.append("")
         linhas.append(f"Cartório: {_ou_vazio(self.var_cart_nome.get())} ({self.var_cidade.get()}/{self.var_uf.get()})")
         linhas.append(f"Responsável interino: {'Sim' if self.var_interino.get() else 'Não'}")
@@ -658,14 +657,9 @@ class CriarBasePanel(ttk.Frame):
         """Quantidade de passos esperados nesta execução, pra calibrar a
         barra de progresso (0 a 100%) antes de começar — varia conforme o
         que foi escolhido nas etapas anteriores."""
-        mesmo_servidor = (
-            self.var_modelo_servidor.get().strip().lower() == self.var_destino_servidor.get().strip().lower()
-        )
-        total = 2  # schema, usuario
-        if mesmo_servidor:
-            total += 1  # dados
-            if self._tabelas_extras_selecionadas():
-                total += 1
+        total = 3  # schema, usuario, dados (sempre roda, mesmo com servidores diferentes)
+        if self._tabelas_extras_selecionadas():
+            total += 1
         total += 2  # cartorio, cartorio_id
         if self.var_interino.get():
             total += 1
@@ -676,11 +670,9 @@ class CriarBasePanel(ttk.Frame):
     # Auto-sugestão
     # ------------------------------------------------------------------
     def _wire_autosuggest(self):
-        self.var_base_nova.trace_add("write", lambda *_: self._marcar_editado_manualmente("base_nova"))
         self.var_odbc_dsn.trace_add("write", lambda *_: self._marcar_editado_manualmente("odbc_dsn"))
         self.var_diretorio.trace_add("write", lambda *_: self._marcar_editado_manualmente("diretorio"))
-        self.var_cidade.trace_add("write", lambda *_: self._atualizar_sugestoes())
-        self.var_uf.trace_add("write", lambda *_: self._atualizar_sugestoes())
+        self.var_base_nova.trace_add("write", lambda *_: self._atualizar_sugestoes())
 
         # Espelha modelo -> destino enquanto "mesmo servidor" estiver marcado.
         for var in (self.var_modelo_servidor, self.var_modelo_usuario, self.var_modelo_senha):
@@ -720,19 +712,15 @@ class CriarBasePanel(ttk.Frame):
         self._nivel_auto_atualizacao -= 1
 
     def _atualizar_sugestoes(self):
-        cidade = _slug(self.var_cidade.get())
-        uf = self.var_uf.get().strip().upper()[:2]
-        if not cidade or not uf:
+        base_nova = self.var_base_nova.get().strip()
+        if not base_nova:
             return
         self._iniciar_auto_atualizacao()
         try:
-            if not self._auto_editado_manualmente["base_nova"]:
-                self.var_base_nova.set(f"Gestor_{uf}_{cidade}")
             if not self._auto_editado_manualmente["odbc_dsn"]:
-                self.var_odbc_dsn.set(f"ODBC_GF_{uf}_{cidade[:20]}")
+                self.var_odbc_dsn.set(f"ODBC_GF_{_slug(base_nova)[:24]}")
             if not self._auto_editado_manualmente["diretorio"]:
-                base_nome = self.var_base_nova.get() or f"Gestor_{uf}_{cidade}"
-                self.var_diretorio.set(f"C:\\ProPackages\\Arquivos\\{base_nome}\\")
+                self.var_diretorio.set(f"C:\\ProPackages\\Arquivos\\{base_nova}\\")
         finally:
             self._finalizar_auto_atualizacao()
 

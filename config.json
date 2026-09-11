@@ -157,7 +157,7 @@
     }
   },
   "ultimas_configuracoes": {
-    "ultimo_diretorio": "C:/Users/Usuario/Documents/Trabalho/INTERFACES/Interfaces/Inr/DOING/SP Jau",
+    "ultimo_diretorio": "C:/Users/Usuario/Documents/Trabalho/INTERFACES/Interfaces/Inr/DOING/SP São José do Rio Pardo",
     "ultimo_tipo_arq": "Emolumentos",
     "ultimo_tipo_conta": "Recebimento",
     "ultimo_regime": "Interino",
@@ -165,12 +165,20 @@
     "ultimo_historico1": "Hist",
     "ultimo_historico2": "",
     "ultimo_historico3": "",
-    "ultimo_interface_comum": "Emolumentos_",
-    "ultimo_interface_forma_pgto": "Emolumentos_RI"
+    "ultimo_interface_comum": "Emolumentos",
+    "ultimo_interface_forma_pgto": "Emolumentos"
   },
   "ultima_conexao": {
-    "ultimo_servidor": "100.77.102.1,1435",
-    "ultimo_usuario": "UserPp",
-    "ultimo_cliente_parametros": "Gestor Pro-Packages"
+    "ultimo_servidor": "18.229.78.5",
+    "ultimo_usuario": "user_inr",
+    "ultimo_cliente_parametros": "INR - Gestor_SP_SaoJoseDoRioPardo_2TNP"
+  },
+  "ultima_criacao_base": {
+    "modelo_servidor": "18.229.78.5",
+    "modelo_usuario": "Gestor_Parametros_Login",
+    "destino_servidor": "100.77.102.1",
+    "destino_usuario": "dba_propackages",
+    "mesmo_servidor": false,
+    "pp_usuario": "dba_propackages"
   }
 }

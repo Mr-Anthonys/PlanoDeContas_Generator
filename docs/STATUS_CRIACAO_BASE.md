@@ -83,12 +83,20 @@ tudo dentro de uma área rolável (`src/gui/scrollable_area.py`, extraído de
    destino (onde a base nova é criada) agora podem ser DIFERENTES — antes
    era sempre o mesmo servidor, obrigatoriamente. Checkbox "É o mesmo
    servidor" espelha automaticamente modelo → destino quando marcado
-   (padrão). Quando os servidores diferem, a cópia de dados (03_dados.sql
-   fixo e as tabelas extras da etapa 3) é **pulada com aviso** — não dá pra
-   referenciar banco de outro servidor sem linked server.
-2. **Nova base e cartório** — mesmo conteúdo de antes (Nova base + Dados do
-   cartório), só que dentro do assistente; "Responsável interino" mudou de
-   lugar (antes ficava na seção "Regime e registro dev", que foi removida).
+   (padrão). Quando os servidores são o mesmo, a cópia de dados (03_dados.sql
+   fixo e as tabelas extras da etapa 3) roda direto no SQL (cross-database,
+   rápida); quando são diferentes, `criar_base_service.py` copia linha a
+   linha via Python (lê da conexão do modelo, grava na de destino) — mais
+   lenta, mas **não é mais pulada**: `schema_service.analisar_copia_fixa_de_dados`
+   extrai do próprio `03_dados.sql` quais tabelas/colunas copiar (fonte
+   única da verdade, nada duplicado à mão).
+2. **Nova base e cartório** — Cidade/UF foram removidos do quadro "Nova
+   base" e viraram campos de "Dados do cartório" (fazem mais sentido lá —
+   são dados do cartório, não da base). DSN ODBC e Diretório de arquivos
+   agora são sugeridos a partir do "Nome da base nova" (antes vinham de
+   Cidade/UF, que não existem mais nessa etapa). "Responsável interino"
+   mudou de lugar (antes ficava na seção "Regime e registro dev", que foi
+   removida).
 3. **Tabelas adicionais** (nova, opcional) — `src/services/schema_service.py`
    consulta `INFORMATION_SCHEMA.TABLES`/`COLUMNS` do banco modelo (via
    `?`-parametrizado) e deixa escolher tabelas e colunas extras pra copiar,
@@ -140,11 +148,13 @@ name" até ela ser adicionada manualmente em cada `Gestor_Parametros` real.
 2. **Testar contra um SQL Server real de teste** antes de qualquer uso em
    produção: login, "Executar no banco" em Criar Contas, "Excluir contas",
    e um provisionamento completo de Criação de Base — incluindo o caso de
-   servidor modelo ≠ servidor de destino (cópia de dados pulada), a busca de
-   tabelas/colunas extras (etapa 3), e o registro em Parametros_Clientes
-   (lembrando de adicionar a coluna UrlGestorClientes antes, ver acima). Só
-   foi validado com conexões falsas (`FakeConnection`/`FakeCursor`, testes
-   automatizados e screenshots reais do app rodando) até agora.
+   servidor modelo ≠ servidor de destino (cópia linha a linha via Python), a
+   busca de tabelas/colunas extras (etapa 3), e o registro em
+   Parametros_Clientes (lembrando de adicionar a coluna UrlGestorClientes
+   antes, ver acima). Só foi validado com conexões falsas
+   (`FakeConnection`/`FakeCursor`, testes automatizados e screenshots reais
+   do app rodando) até agora — a cópia linha a linha em especial merece um
+   teste contra um SQL Server real (volume de dados/tempo de execução).
 3. Build do `.exe` (`build.bat`) ainda não foi re-executado com o `pyodbc`
    novo — `--add-data` pros templates `.sql` já foi adicionado, mas nunca
    foi testado empacotado (só `python app.py` direto do venv).

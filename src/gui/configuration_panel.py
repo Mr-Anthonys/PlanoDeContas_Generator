@@ -165,6 +165,7 @@ class ConfigurationPanel(ttk.LabelFrame):
         self.var_historico1 = tk.StringVar(value="")
         self.var_historico2 = tk.StringVar(value="")
         self.var_historico3 = tk.StringVar(value="")
+        self.var_l_previo = tk.IntVar(value=2)
 
         self._build()
         self._wire_events()
@@ -199,6 +200,14 @@ class ConfigurationPanel(ttk.LabelFrame):
         )
         self.multi_tipo_conta.grid(row=5, column=0, sticky="we", pady=(0, 8))
 
+        ttk.Label(col1, text="LPrévio:", font=("Segoe UI", 9, "bold")).grid(row=6, column=0, sticky="w")
+        previo_frame = ttk.Frame(col1)
+        previo_frame.grid(row=7, column=0, sticky="w", pady=(0, 8))
+        for i, valor in enumerate((0, 1, 2)):
+            ttk.Radiobutton(
+                previo_frame, text=str(valor), value=valor, variable=self.var_l_previo,
+            ).grid(row=0, column=i, sticky="w", padx=(0 if i == 0 else 8, 0))
+
         # --- TipoArq / Interfaces (texto livre) --------------------------
         ttk.Label(col2, text="TipoArq:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w")
         self.entry_tipo_arq = ttk.Entry(col2, textvariable=self.var_tipo_arq)
@@ -221,9 +230,22 @@ class ConfigurationPanel(ttk.LabelFrame):
         ttk.Label(col3, text="Texto do histórico:", font=("Segoe UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=(8, 0))
         self.entry_historico_texto = ttk.Entry(col3, textvariable=self.var_historico_texto)
         self.entry_historico_texto.grid(row=5, column=0, sticky="we", pady=(0, 2))
+
+        exemplo_frame = ttk.Frame(col3)
+        exemplo_frame.grid(row=6, column=0, sticky="we", pady=(0, 8))
+        exemplo_frame.columnconfigure(0, weight=1)
+        self._exemplo_historico_texto = 'EMOLUMENTOS RECEBIDOS - QTD DE ATOS @'
         ttk.Label(
-            col3, text='Exemplo (mais usado): "EMOLUMENTOS RECEBIDOS - QTD DE ATOS @"', foreground="#555",
-        ).grid(row=6, column=0, sticky="w", pady=(0, 8))
+            exemplo_frame,
+            text=f'Exemplo (mais usado): "{self._exemplo_historico_texto}"',
+            foreground="#555",
+            wraplength=200,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Button(
+            exemplo_frame, text="Copiar", width=8,
+            command=self._copiar_exemplo_historico_texto,
+        ).grid(row=0, column=1, sticky="ne", padx=(4, 0))
 
         # --- Historico1 / Historico2 / Historico3 (texto livre) ----------
         ttk.Label(col4, text="Historico1:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w")
@@ -238,12 +260,17 @@ class ConfigurationPanel(ttk.LabelFrame):
         self.entry_historico3 = _PlaceholderEntry(col4, self.var_historico3)
         self.entry_historico3.grid(row=5, column=0, sticky="we", pady=(0, 8))
 
+    def _copiar_exemplo_historico_texto(self):
+        self.clipboard_clear()
+        self.clipboard_append(self._exemplo_historico_texto)
+
     def _wire_events(self):
         self.var_qtd_marcadores.trace_add("write", lambda *_: self._atualizar_estado_historico())
         for var in (
             self.var_regime, self.var_tipo_arq, self.var_interface_comum,
             self.var_interface_forma_pgto, self.var_historico_texto,
             self.var_historico1, self.var_historico2, self.var_historico3,
+            self.var_l_previo,
         ):
             var.trace_add("write", lambda *_: self.on_change())
 
@@ -270,6 +297,7 @@ class ConfigurationPanel(ttk.LabelFrame):
             historico1=self.entry_historico1.get_value(),
             historico2=self.entry_historico2.get_value() if qtd >= 2 else "",
             historico3=self.entry_historico3.get_value() if qtd >= 3 else "",
+            l_previo=self.var_l_previo.get(),
         )
 
     def set_from_dict(self, dados: dict):
@@ -288,4 +316,5 @@ class ConfigurationPanel(ttk.LabelFrame):
         self.entry_historico1.set_value(dados.get("ultimo_historico1", ""))
         self.entry_historico2.set_value(dados.get("ultimo_historico2", ""))
         self.entry_historico3.set_value(dados.get("ultimo_historico3", ""))
+        self.var_l_previo.set(dados.get("ultimo_l_previo", 2))
         self._atualizar_estado_historico()
